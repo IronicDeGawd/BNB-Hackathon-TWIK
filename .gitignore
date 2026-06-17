@@ -1,0 +1,35 @@
+# Secrets
+.env
+*.key
+*.pem
+
+# Context (never commit — local working state)
+context/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Experiment venv (throwaway)
+experiment/.venv/
+
+# Agent state
+*.sqlite
+*.sqlite3
+*.db
+data/
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

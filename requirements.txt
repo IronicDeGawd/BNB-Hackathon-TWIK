@@ -1,0 +1,22 @@
+# --- Core ---
+python-dotenv>=1.0.0        # load .env secrets
+requests>=2.31.0            # HTTP for social wrappers + REST calls
+
+# --- On-chain (BSC) ---
+web3>=6.15.0               # BSC RPC, Transfer event logs, swaps
+
+# --- Scheduling ---
+schedule>=1.2.0            # 15-min cycle cadence (lightweight)
+
+# --- Social (secondary axis) ---
+praw>=7.7.0               # Reddit official API client (signals/reddit.py)
+
+# --- LLM (rationale_text only; rules-based core stays deterministic) ---
+anthropic>=0.40.0         # Claude call for human-readable trade rationale
+
+# --- Dev / test ---
+pytest>=8.0.0
+
+# --- NOTE ---
+# CMC Agent Hub is consumed via MCP (see signals/cmc.py) — no pip dep.
+# TWAK (Trust Wallet Agent Kit) install per its own docs — see execution/twak.py.
