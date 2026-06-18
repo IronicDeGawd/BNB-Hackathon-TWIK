@@ -75,65 +75,53 @@ def _run(args: list[str]) -> str:
     return proc.stdout.strip()
 
 
-def _agent_account():
-    """Load the agent web3 account from TWAK_PRIVATE_KEY (used for on-chain registration)."""
-    from web3 import Web3
-    pk = os.getenv("TWAK_PRIVATE_KEY")
-    if not pk:
-        raise RuntimeError("TWAK_PRIVATE_KEY required for on-chain registration")
-    w3 = Web3(Web3.HTTPProvider(BSC_RPC_URL))
-    acct = w3.eth.account.from_key(pk)
-    return w3, acct
-
-
 def _require_live_config() -> None:
-    if not os.getenv("TWAK_WALLET_ADDRESS") and not os.getenv("TWAK_PRIVATE_KEY"):
-        raise RuntimeError("live execution requested but no TWAK wallet configured (.env)")
+    if not os.getenv("TWAK_WALLET_ADDRESS"):
+        raise RuntimeError("live execution requested but TWAK_WALLET_ADDRESS not set (.env)")
 
 
 # --------------------------------------------------------------------------- #
 def is_registered() -> bool:
-    """True if the agent wallet is already registered on the CompetitionRegistry."""
+    """True if the agent wallet is registered on the CompetitionRegistry.
+
+    Read-only view call (isRegistered(address)) — needs only the wallet address + an RPC,
+    NO private key. Works to verify registration regardless of how it was performed.
+    """
     if _dry_run():
+        return False
+    addr = os.getenv("TWAK_WALLET_ADDRESS")
+    if not addr:
         return False
     try:
         from web3 import Web3
-        w3, acct = _agent_account()
+        w3 = Web3(Web3.HTTPProvider(BSC_RPC_URL))
         reg = w3.eth.contract(address=Web3.to_checksum_address(COMPETITION_CONTRACT), abi=REGISTRY_ABI)
-        return bool(reg.functions.isRegistered(acct.address).call())
+        return bool(reg.functions.isRegistered(Web3.to_checksum_address(addr)).call())
     except Exception as e:
         log.warning("registration status check failed: %s", e)
         return False
 
 
 def register() -> str:
-    """Register the agent wallet on the CompetitionRegistry (idempotent).
+    """Competition registration is performed by the HACKATHON-PROVIDED tool, not here.
 
-    Direct call to register() on 0x212c…aed5 — TWAK has no compete command. Must run
-    BEFORE the June 22 window; the contract rejects late entries. Returns tx hash.
+    TWAK is self-custody: it never exposes the private key and the CLI has no
+    arbitrary-contract-call, so this code cannot sign register() on 0x212c…aed5.
+    The documented `twak compete register` / `competition_register` do NOT exist in
+    any public TWAK or CMC docs (verified 2026-06-18). Register via the participant
+    tool from the Builder Telegram / DoraHacks BUIDL page, BEFORE June 22.
+    See docs/REGISTRATION.md. Use is_registered() to verify afterwards.
     """
     if _dry_run():
         return _sim_hash("register", COMPETITION_CONTRACT)
-    _require_live_config()
-    from web3 import Web3
-    w3, acct = _agent_account()
-    reg = w3.eth.contract(address=Web3.to_checksum_address(COMPETITION_CONTRACT), abi=REGISTRY_ABI)
-    if reg.functions.isRegistered(acct.address).call():
-        log.info("already registered — skipping")
+    if is_registered():
+        log.info("already registered")
         return ""
-    tx = reg.functions.register().build_transaction({
-        "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address),
-        "chainId": BSC_CHAIN_ID,
-        "gas": 150_000,
-        "gasPrice": w3.eth.gas_price,
-    })
-    signed = acct.sign_transaction(tx)
-    txh = w3.eth.send_raw_transaction(signed.raw_transaction)
-    w3.eth.wait_for_transaction_receipt(txh, timeout=180)
-    h = txh.hex()
-    log.info("registered on-chain: %s", h)
-    return h if h.startswith("0x") else "0x" + h
+    raise RuntimeError(
+        "Agent NOT registered. Registration is organizer-provided — run the hackathon "
+        f"register tool for wallet {os.getenv('TWAK_WALLET_ADDRESS')} on {COMPETITION_CONTRACT} "
+        "(see docs/REGISTRATION.md), then re-check is_registered()."
+    )
 
 
 def get_balance() -> dict[str, float]:
