@@ -33,10 +33,12 @@ DEFAULT_RPC = "https://bsc-rpc.publicnode.com"
 CHUNK_BLOCKS = 1000          # under the ~2000 public getLogs limit
 FLAT_EPS = 1e-9             # |net| below this counts as "flat"
 
-# Curated smart-wallet set. Seed from a public labeled set or BscScan PnL-filtered
-# discovery (spec §8.1), then refine. Empty -> collect() returns flat signals.
-# TODO: populate before live trading.
-SMART_WALLETS: list[str] = []
+# Smart-wallet set. Auto-seeded by scripts/discover_smart_wallets.py (recent net-accumulator
+# EOAs) into config/smart_wallets.py. Heuristic seed — refine with a labeled set before scaling capital.
+try:
+    from config.smart_wallets import SMART_WALLETS
+except ImportError:
+    SMART_WALLETS: list[str] = []
 
 ERC20_TRANSFER_ABI = [
     {"anonymous": False, "name": "Transfer", "type": "event",

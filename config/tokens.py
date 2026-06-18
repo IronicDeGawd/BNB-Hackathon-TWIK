@@ -45,7 +45,8 @@ _ELIGIBLE_SYMBOLS: tuple[str, ...] = (
 )
 
 # symbol -> checksummed BEP-20 address (None = unresolved, resolve for watchlist tokens)
-ELIGIBLE: dict[str, str | None] = {sym: None for sym in _ELIGIBLE_SYMBOLS}
+from config.token_addresses import ADDRESSES as _ADDR  # noqa: E402
+ELIGIBLE: dict[str, str | None] = {sym: _ADDR.get(sym) for sym in _ELIGIBLE_SYMBOLS}
 
 
 def is_eligible(symbol_or_address: str) -> bool:
