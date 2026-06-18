@@ -26,10 +26,10 @@ log = logging.getLogger("conviction.cmc_mcp")
 
 MCP_URL = os.getenv("CMC_MCP_URL", "https://mcp.coinmarketcap.com/mcp")
 
-# Best-effort tool names — confirm via discover() (tools/list).
-TOOL_GLOBAL = os.getenv("CMC_TOOL_GLOBAL", "get_global_metrics")     # Fear & Greed, dominance
-TOOL_QUOTES = os.getenv("CMC_TOOL_QUOTES", "get_crypto_quotes_latest")  # price/volume per symbol
-TOOL_DERIV = os.getenv("CMC_TOOL_DERIVATIVES", "get_derivatives")    # funding rates
+# Verified against the live tools/list (2026-06-18).
+TOOL_GLOBAL = os.getenv("CMC_TOOL_GLOBAL", "get_global_metrics_latest")        # Fear & Greed, dominance
+TOOL_QUOTES = os.getenv("CMC_TOOL_QUOTES", "get_crypto_quotes_latest")         # price/volume per symbol
+TOOL_DERIV = os.getenv("CMC_TOOL_DERIVATIVES", "get_global_crypto_derivatives_metrics")  # funding rates
 
 _id = 0
 
@@ -74,18 +74,28 @@ def list_tools() -> list[dict]:
 
 
 def call_tool(name: str, arguments: dict | None = None) -> dict:
-    """tools/call — invoke a tool, return its structured/text content as a dict."""
+    """tools/call — invoke a tool, return its structured/text content as a dict.
+
+    Raises on a CMC error payload (e.g. {"error":{"code":1001,"message":"...invalid"}})
+    so callers fall back cleanly instead of treating the error as data.
+    """
     res = _rpc("tools/call", {"name": name, "arguments": arguments or {}})
-    # MCP returns content blocks; pull JSON from the first text/json block.
+    out: dict = {}
     for block in res.get("content", []):
         if block.get("type") == "text":
             try:
-                return json.loads(block["text"])
+                out = json.loads(block["text"])
             except Exception:
-                return {"text": block["text"]}
+                out = {"text": block["text"]}
+            break
         if block.get("type") == "json":
-            return block.get("json", {})
-    return res.get("structuredContent", res)
+            out = block.get("json", {})
+            break
+    else:
+        out = res.get("structuredContent", res)
+    if isinstance(out, dict) and isinstance(out.get("error"), dict):
+        raise RuntimeError(f"CMC tool error: {out['error']}")
+    return out
 
 
 def discover() -> None:
