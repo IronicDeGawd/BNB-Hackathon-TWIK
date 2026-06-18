@@ -13,7 +13,7 @@ CONVICTION_THRESHOLD = 65          # min 0-100 score to trigger a trade
 
 # --- Risk (the disqualifier defense) ---
 MAX_DRAWDOWN_PCT = 25              # internal kill-switch cap, BELOW the 30% disqualifier
-MAX_POSITION_PCT = 20             # max % of portfolio in a single trade
+MAX_POSITION_PCT = 40             # max % of portfolio per trade (raised for ~$20 size: fewer, bigger trades beat fee drag)
 SLIPPAGE_BPS = 100               # 1% max slippage
 COOLDOWN_MINUTES = 60            # no re-trade of same token within this window
 DUST_FLOOR_USD = 1.0             # never let portfolio sit at or below this (those hours score 0%)
