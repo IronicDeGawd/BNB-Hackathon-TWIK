@@ -73,8 +73,40 @@ def _get(path: str, params: dict | None = None) -> dict:
     return r.json()
 
 
+def _use_mcp() -> bool:
+    """Route through the CMC Agent Hub MCP when CMC_TRANSPORT=mcp (else classic REST)."""
+    return os.getenv("CMC_TRANSPORT", "rest").strip().lower() == "mcp"
+
+
+def _dig(d, *paths):
+    """First non-None value found at any of the given key-paths in a nested dict."""
+    for path in paths:
+        cur = d
+        for k in path:
+            cur = cur.get(k) if isinstance(cur, dict) else None
+            if cur is None:
+                break
+        if cur is not None:
+            return cur
+    return None
+
+
 def fear_greed() -> int:
-    """Global Fear & Greed index (0-100). Neutral 50 if unavailable."""
+    """Global Fear & Greed index (0-100). Neutral 50 if unavailable.
+
+    Uses the Agent Hub MCP when CMC_TRANSPORT=mcp; always falls back to REST on error.
+    """
+    if _use_mcp():
+        try:
+            from signals import cmc_mcp
+            d = cmc_mcp.call_tool(cmc_mcp.TOOL_GLOBAL)
+            val = _dig(d, ["fear_and_greed", "value"], ["data", "fear_and_greed", "value"],
+                       ["fearAndGreed", "value"], ["value"])
+            if val is not None:
+                return int(val)
+            log.warning("MCP fear&greed: value not found in response -> REST")
+        except Exception as e:
+            log.warning("MCP fear&greed failed (%s) -> REST", e)
     try:
         return int(_get("/v3/fear-and-greed/latest")["data"]["value"])
     except Exception as e:
@@ -83,7 +115,25 @@ def fear_greed() -> int:
 
 
 def _fetch_liquidity(symbols: list[str]) -> dict[str, float | None]:
-    """24h USD volume per symbol (liquidity proxy), batched in one call."""
+    """24h USD volume per symbol (liquidity proxy), batched in one call.
+
+    Uses the Agent Hub MCP when CMC_TRANSPORT=mcp; falls back to REST on error.
+    """
+    if _use_mcp():
+        try:
+            from signals import cmc_mcp
+            d = cmc_mcp.call_tool(cmc_mcp.TOOL_QUOTES, {"symbol": ",".join(symbols), "convert": "USD"})
+            data = _dig(d, ["data"]) or d
+            out: dict[str, float | None] = {}
+            for sym in symbols:
+                entry = data.get(sym) if isinstance(data, dict) else None
+                rec = entry[0] if isinstance(entry, list) and entry else entry
+                out[sym] = float(_dig(rec or {}, ["quote", "USD", "volume_24h"], ["volume_24h"]) or 0) or None
+            if any(v is not None for v in out.values()):
+                return out
+            log.warning("MCP quotes: no volume parsed -> REST")
+        except Exception as e:
+            log.warning("MCP liquidity failed (%s) -> REST", e)
     data = _get("/v2/cryptocurrency/quotes/latest",
                 {"symbol": ",".join(symbols), "convert": "USD"}).get("data", {})
     out: dict[str, float | None] = {}
