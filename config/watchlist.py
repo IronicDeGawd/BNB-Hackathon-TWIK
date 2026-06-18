@@ -8,11 +8,15 @@ Quality over quantity: thin tokens add noise and slippage. Each entry MUST be
 
 from config.tokens import is_eligible
 
-# Candidate watchlist from the spec. Verify pool depth, then finalize.
+# Candidate watchlist from the spec, extended to ~25. Verify pool depth before live.
 WATCHLIST: list[str] = [
+    # original spec set
     "CAKE", "AVAX", "LINK", "UNI", "AAVE",
     "DOT", "ATOM", "INJ", "FET", "BONK",
     "FLOKI", "PENGU", "TWT", "SFP", "ASTER",
+    # extension: liquid + social-active, all on ELIGIBLE (confirm BSC pool depth before live)
+    "XRP", "DOGE", "SHIB", "TRX", "ADA",
+    "TON", "PENDLE", "AXS", "APE", "LDO",
 ]
 
 
