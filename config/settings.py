@@ -21,12 +21,13 @@ DUST_FLOOR_USD = 1.0             # never let portfolio sit at or below this (tho
 # --- Qualification rules ---
 DAILY_TRADE_FLOOR = 1             # must trade at least once/day
 WEEKLY_TRADE_FLOOR = 7           # must trade at least 7x over the week
+MAX_TRADES_PER_DAY = 6           # hard cap on new entries/day (anti-churn; fee drag bites at small size)
 DISQUALIFY_DRAWDOWN_PCT = 30      # hard gate from hackathon rules (do not breach)
 
 # --- Budgets ---
 TWITTER_DAILY_BUDGET = 1000       # hard stop; degrade gracefully when hit
-CAPITAL_AT_RISK_USD = 100         # ceiling on capital exposed
-PAPER_PORTFOLIO_USD = 100.0       # assumed portfolio value in DRY_RUN when balances are empty
+CAPITAL_AT_RISK_USD = 20          # ceiling on capital exposed (funding ~$20, not $100)
+PAPER_PORTFOLIO_USD = 20.0        # assumed portfolio value in DRY_RUN when balances are empty
 
 # --- Signal windows ---
 ONCHAIN_FLOW_WINDOW_HOURS = 6     # trailing window for smart-money net flow

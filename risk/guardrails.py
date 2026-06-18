@@ -8,6 +8,7 @@ enforces every guardrail before a trade is allowed:
   - Allowlist            : never trade a token outside the eligible list.
   - Position sizing      : cap any single trade at MAX_POSITION_PCT of portfolio.
   - Cooldown             : no re-trade of the same token within COOLDOWN_MINUTES.
+  - Daily cap            : reject new entries past MAX_TRADES_PER_DAY (anti-churn / fee drag).
   - Daily-floor nudge    : surface when no trade has happened today (qualification).
   - Dust guard           : flag when the portfolio is at/below DUST_FLOOR_USD.
 
@@ -63,6 +64,11 @@ class RiskManager:
             return False, "kill switch tripped (drawdown breached)"
         if not is_eligible(symbol):
             return False, f"{symbol} not on eligible allowlist"
+
+        self._roll_day()
+        if self._trades_today >= settings.MAX_TRADES_PER_DAY:
+            return False, (f"daily trade cap reached "
+                           f"({self._trades_today}/{settings.MAX_TRADES_PER_DAY})")
 
         portfolio = portfolio_usd if portfolio_usd is not None else self.current_usd
         if portfolio <= settings.DUST_FLOOR_USD:

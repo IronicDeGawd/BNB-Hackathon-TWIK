@@ -92,3 +92,16 @@ def test_daily_floor_and_rollover():
     assert rm.needs_daily_floor_trade() is False               # traded today
     clk.advance(24 * 3600 + 1)                                 # next day
     assert rm.needs_daily_floor_trade() is True                # counter reset
+
+
+def test_daily_trade_cap_blocks_overtrading():
+    rm = _rm()
+    rm.update_drawdown(1000.0)
+    toks = ["CAKE", "AVAX", "LINK", "UNI", "AAVE", "DOT", "ATOM", "INJ"]  # distinct -> no cooldown
+    allowed = 0
+    for t in toks:
+        if rm.allows(t, 10.0)[0]:
+            rm.record_trade(t)
+            allowed += 1
+    assert allowed == settings.MAX_TRADES_PER_DAY                # stops at the cap
+    assert "daily trade cap" in rm.allows("FET", 10.0)[1]       # fresh token still blocked
