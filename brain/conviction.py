@@ -126,27 +126,31 @@ def _template_rationale(div: DivergenceSignal, sc: float, direction: str) -> str
     return f"{div.symbol}: no actionable divergence"
 
 
+_VERTEX_HAIKU = "claude-haiku-4-5@20251001"  # Vertex Model Garden id; Haiku-only by design
+
+
 def make_rationale(div: DivergenceSignal, sc: float, direction: str) -> str:
     """One human-readable sentence for the demo. Off the hot path; never blocks a trade.
 
-    Deterministic template by default. If ANTHROPIC_API_KEY is set, optionally upgrade to
-    an LLM-written line; ANY failure falls back to the template.
+    Deterministic template by default. If VERTEX_PROJECT is set, upgrade to a Claude
+    Haiku line via Vertex AI (ADC auth); ANY failure falls back to the template.
     """
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    project = os.getenv("VERTEX_PROJECT")
+    if not project:
         return _template_rationale(div, sc, direction)
     try:
-        import anthropic  # imported lazily — optional dependency on the rationale path
-        client = anthropic.Anthropic()
+        from anthropic import AnthropicVertex  # imported lazily on the rationale path
+        client = AnthropicVertex(project_id=project, region=os.getenv("VERTEX_REGION", "us-east5"))
         facts = (f"token={div.symbol} setup={div.setup.value} net_flow={div.onchain_flow_usd:+.0f} "
                  f"social_velocity={div.social_velocity:.2f} reddit_agrees={div.reddit_agrees} "
                  f"direction={direction} score={sc}")
         msg = client.messages.create(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+            model=_VERTEX_HAIKU,
             max_tokens=80,
             messages=[{"role": "user", "content":
                        "Write ONE terse trader sentence explaining this signal. Facts: " + facts}],
         )
         return msg.content[0].text.strip()
-    except Exception as e:                       # network/key/SDK issue -> template
-        log.debug("LLM rationale failed (%s) — using template", e)
+    except Exception as e:                       # auth/region/model issue -> template
+        log.debug("Vertex rationale failed (%s) — using template", e)
         return _template_rationale(div, sc, direction)

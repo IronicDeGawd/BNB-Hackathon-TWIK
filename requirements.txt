@@ -12,7 +12,7 @@ schedule>=1.2.0            # 15-min cycle cadence (lightweight)
 praw>=7.7.0               # Reddit official API client (signals/reddit.py)
 
 # --- LLM (rationale_text only; rules-based core stays deterministic) ---
-anthropic>=0.40.0         # Claude call for human-readable trade rationale
+anthropic[vertex]>=0.40.0  # Claude (Haiku) via Vertex AI/ADC for human-readable trade rationale
 
 # --- Dev / test ---
 pytest>=8.0.0
