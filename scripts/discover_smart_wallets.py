@@ -51,14 +51,14 @@ def _fetch_all_transfers(w3, contract, from_block, to_block, chunk=500, cap=4000
             out.extend((l["args"]["from"], l["args"]["to"], int(l["args"]["value"])) for l in logs)
             b = end + 1
         except Exception as e:
-            if chunk > 50:
-                chunk //= 2  # response too big / range too wide -> shrink
+            if chunk > 1:
+                chunk = max(1, chunk // 2)  # response too big / range too wide -> shrink
                 continue
             b = end + 1     # give up this slice, move on
     return out
 
 
-def discover(blocks: int, n_tokens: int, top: int) -> list[str]:
+def discover(blocks: int, n_tokens: int, top: int, chunk: int = 500) -> list[str]:
     w3 = connect()
     head = w3.eth.block_number
     frm = max(0, head - blocks)
@@ -77,7 +77,7 @@ def discover(blocks: int, n_tokens: int, top: int) -> list[str]:
             dec = c.functions.decimals().call()
         except Exception:
             dec = 18
-        evs = _fetch_all_transfers(w3, c, frm, head)
+        evs = _fetch_all_transfers(w3, c, frm, head, chunk=chunk)
         scale = 10 ** dec
         per: dict[str, float] = defaultdict(float)
         for f, t, v in evs:
@@ -129,8 +129,9 @@ if __name__ == "__main__":
     ap.add_argument("--blocks", type=int, default=3000)   # ~40 min at 0.75s blocks
     ap.add_argument("--tokens", type=int, default=6)
     ap.add_argument("--top", type=int, default=30)
+    ap.add_argument("--chunk", type=int, default=500)  # getLogs block range; Alchemy free caps at 10
     a = ap.parse_args()
-    wallets = discover(a.blocks, a.tokens, a.top)
+    wallets = discover(a.blocks, a.tokens, a.top, a.chunk)
     print(f"\n=== {len(wallets)} smart-wallet candidates ===")
     for w in wallets:
         print(" ", w)
