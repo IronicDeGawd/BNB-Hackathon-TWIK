@@ -126,31 +126,35 @@ def _template_rationale(div: DivergenceSignal, sc: float, direction: str) -> str
     return f"{div.symbol}: no actionable divergence"
 
 
-_VERTEX_HAIKU = "claude-haiku-4-5@20251001"  # Vertex Model Garden id; Haiku-only by design
+_GEMINI_MODEL = "gemini-2.5-flash"  # pinned; native Vertex via ADC, no Model Garden enable
 
 
 def make_rationale(div: DivergenceSignal, sc: float, direction: str) -> str:
     """One human-readable sentence for the demo. Off the hot path; never blocks a trade.
 
-    Deterministic template by default. If VERTEX_PROJECT is set, upgrade to a Claude
-    Haiku line via Vertex AI (ADC auth); ANY failure falls back to the template.
+    Deterministic template by default. If VERTEX_PROJECT is set, upgrade to a Gemini
+    Flash line via Vertex AI (ADC auth); ANY failure falls back to the template.
     """
     project = os.getenv("VERTEX_PROJECT")
     if not project:
         return _template_rationale(div, sc, direction)
     try:
-        from anthropic import AnthropicVertex  # imported lazily on the rationale path
-        client = AnthropicVertex(project_id=project, region=os.getenv("VERTEX_REGION", "us-east5"))
+        from google import genai                 # imported lazily on the rationale path
+        from google.genai import types
+        client = genai.Client(vertexai=True, project=project,
+                              location=os.getenv("VERTEX_REGION", "us-central1"))
         facts = (f"token={div.symbol} setup={div.setup.value} net_flow={div.onchain_flow_usd:+.0f} "
                  f"social_velocity={div.social_velocity:.2f} reddit_agrees={div.reddit_agrees} "
                  f"direction={direction} score={sc}")
-        msg = client.messages.create(
-            model=_VERTEX_HAIKU,
-            max_tokens=80,
-            messages=[{"role": "user", "content":
-                       "Write ONE terse trader sentence explaining this signal. Facts: " + facts}],
+        resp = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents="Write ONE terse trader sentence explaining this signal. Facts: " + facts,
+            config=types.GenerateContentConfig(
+                max_output_tokens=100,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),  # no thinking: cheap + fast
+            ),
         )
-        return msg.content[0].text.strip()
+        return resp.text.strip()
     except Exception as e:                       # auth/region/model issue -> template
-        log.debug("Vertex rationale failed (%s) — using template", e)
+        log.debug("Gemini rationale failed (%s) — using template", e)
         return _template_rationale(div, sc, direction)
