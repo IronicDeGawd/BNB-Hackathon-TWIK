@@ -2,8 +2,8 @@
 
 Trades go through the TWAK CLI (TypeScript; no Python SDK) via subprocess, so keys
 stay client-side and the agent signs + broadcasts its own BSC txs. Competition
-registration is a direct call to the on-chain CompetitionRegistry (TWAK has no
-`compete` command — verified against the official docs 2026-06-18).
+registration goes through the TWAK CLI `compete` command
+(`twak compete register` / `twak compete status`).
 
 SAFETY: DRY_RUN defaults TRUE. In dry-run nothing is broadcast — calls return a
 deterministic simulated tx hash so the whole loop is exercisable without spending.
@@ -30,19 +30,8 @@ from config.settings import SLIPPAGE_BPS
 
 log = logging.getLogger("conviction.twak")
 
-COMPETITION_CONTRACT = "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"  # CompetitionRegistry (verified, BSC)
 TWAK_BIN = os.getenv("TWAK_BIN", "twak")
 QUOTE_TOKEN = os.getenv("QUOTE_TOKEN", "USDT")          # base currency we buy/sell against on BSC
-BSC_RPC_URL = os.getenv("BSC_RPC_URL", "https://bsc-dataseed.binance.org/")
-BSC_CHAIN_ID = 56
-
-# Minimal ABI for the verified CompetitionRegistry contract.
-REGISTRY_ABI = [
-    {"inputs": [], "name": "register", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
-    {"inputs": [{"internalType": "address", "name": "", "type": "address"}],
-     "name": "isRegistered", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
-     "stateMutability": "view", "type": "function"},
-]
 
 _sim_nonce = 0
 
@@ -69,7 +58,11 @@ def _run(args: list[str]) -> str:
     """Run a TWAK CLI command, return stdout. Raises on failure (caller decides)."""
     cmd = [TWAK_BIN, *args]
     log.info("twak: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    env = os.environ.copy()
+    # CLI expects TWAK_WALLET_PASSWORD; bridge from TWAK_PASSWORD if only that is set.
+    if not env.get("TWAK_WALLET_PASSWORD") and env.get("TWAK_PASSWORD"):
+        env["TWAK_WALLET_PASSWORD"] = env["TWAK_PASSWORD"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
     if proc.returncode != 0:
         raise RuntimeError(f"twak failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout.strip()
@@ -82,46 +75,38 @@ def _require_live_config() -> None:
 
 # --------------------------------------------------------------------------- #
 def is_registered() -> bool:
-    """True if the agent wallet is registered on the CompetitionRegistry.
+    """True if the agent wallet is registered for the competition.
 
-    Read-only view call (isRegistered(address)) — needs only the wallet address + an RPC,
-    NO private key. Works to verify registration regardless of how it was performed.
+    Reads `twak compete status --json` (read-only; needs the wallet password to derive
+    the participant address, never the private key). Returns False on any error.
     """
-    if _dry_run():
-        return False
-    addr = os.getenv("TWAK_WALLET_ADDRESS")
-    if not addr:
-        return False
     try:
-        from web3 import Web3
-        w3 = Web3(Web3.HTTPProvider(BSC_RPC_URL))
-        reg = w3.eth.contract(address=Web3.to_checksum_address(COMPETITION_CONTRACT), abi=REGISTRY_ABI)
-        return bool(reg.functions.isRegistered(Web3.to_checksum_address(addr)).call())
+        data = json.loads(_run(["compete", "status", "--json"]))
+        return bool(data.get("registered"))
     except Exception as e:
         log.warning("registration status check failed: %s", e)
         return False
 
 
 def register() -> str:
-    """Competition registration is performed by the HACKATHON-PROVIDED tool, not here.
+    """Register the agent wallet via `twak compete register` (one-time, on-chain, BSC).
 
-    TWAK is self-custody: it never exposes the private key and the CLI has no
-    arbitrary-contract-call, so this code cannot sign register() on 0x212c…aed5.
-    The documented `twak compete register` / `competition_register` do NOT exist in
-    any public TWAK or CMC docs (verified 2026-06-18). Register via the participant
-    tool from the Builder Telegram / DoraHacks BUIDL page, BEFORE June 22.
-    See docs/REGISTRATION.md. Use is_registered() to verify afterwards.
+    Self-custody: TWAK signs locally with the wallet password (TWAK_WALLET_PASSWORD or
+    keychain); the private key is never exposed. The wallet needs BNB for gas.
+    Idempotent — returns "" if already registered. Simulated under DRY_RUN.
     """
     if _dry_run():
-        return _sim_hash("register", COMPETITION_CONTRACT)
+        return _sim_hash("register", "compete")
     if is_registered():
         log.info("already registered")
         return ""
-    raise RuntimeError(
-        "Agent NOT registered. Registration is organizer-provided — run the hackathon "
-        f"register tool for wallet {os.getenv('TWAK_WALLET_ADDRESS')} on {COMPETITION_CONTRACT} "
-        "(see docs/REGISTRATION.md), then re-check is_registered()."
-    )
+    _require_live_config()
+    out = _run(["compete", "register", "--json"])
+    try:
+        d = json.loads(out)
+        return d.get("txHash") or d.get("hash") or out
+    except Exception:
+        return out
 
 
 def get_balance() -> dict[str, float]:
