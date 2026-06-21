@@ -94,6 +94,7 @@ def test_distribution_exit_sells_held_position():
     exits = [a for a in actions if a.direction == "exit" and a.executed]
     assert len(exits) == 1 and exits[0].size_usd == 20.0
     assert mem.holding("CAKE") == 0.0                       # position closed
+    assert rm.trades_total == 1                             # the sell is counted toward activity
     mem.close()
 
 

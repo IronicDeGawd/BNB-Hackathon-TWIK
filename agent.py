@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from config import settings
 from config.watchlist import WATCHLIST
+from config.tokens import is_eligible
 from signals import onchain, twitter, reddit, cmc
 from brain.divergence import detect
 from brain.conviction import score
@@ -60,10 +61,19 @@ def collect_signals(watchlist, wallets=None, address_map=None, prices=None, mem=
 
 
 def portfolio_value() -> float:
-    """Total in-scope holdings in USD. Falls back to the paper portfolio in dry-run."""
+    """Total in-scope holdings in USD. In dry-run, falls back to the paper portfolio.
+
+    In LIVE mode an empty/zero balance read is a hard error so the caller skips the
+    cycle — never silently fall back to a fake portfolio, which would hide real drawdown
+    from the kill switch and mis-size positions.
+    """
     bal = twak.get_balance()
     total = sum(bal.values()) if bal else 0.0
-    return total if total > 0 else settings.PAPER_PORTFOLIO_USD
+    if twak._dry_run():
+        return total if total > 0 else settings.PAPER_PORTFOLIO_USD
+    if total <= 0:
+        raise RuntimeError("live balance read empty/zero — skipping cycle (no paper fallback)")
+    return total
 
 
 def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
@@ -81,7 +91,7 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
         conv = score(div)
 
         if conv.direction == "exit":
-            actions.append(_try_exit(sym, conv.score, mem))
+            actions.append(_try_exit(rm, sym, conv.score, mem))
             continue
 
         if conv.direction != "long":
@@ -101,14 +111,21 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
     return actions
 
 
-def _try_exit(sym: str, sc: float, mem: Memory | None) -> Action:
+def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Action:
     """Close a held position on a distribution signal. Needs memory to size the sell."""
     if mem is None:
         return Action(sym, "exit", sc, 0.0, "", "exit signal; no memory to size holdings", False)
+    if not is_eligible(sym):                      # never touch an off-allowlist symbol
+        return Action(sym, "exit", sc, 0.0, "", f"{sym} not on allowlist", False)
     held = mem.holding(sym)
     if held <= 0:
         return Action(sym, "exit", sc, 0.0, "", "exit signal but no open position", False)
-    tx = twak.execute_trade(sym, "sell", held)
+    try:
+        tx = twak.execute_trade(sym, "sell", held)
+    except Exception as e:                        # broadcast failed — do NOT mutate state
+        log.warning("exit %s failed: %s", sym, e)
+        return Action(sym, "exit", sc, held, "", f"sell failed: {e}", False)
+    rm.record_trade(sym)                          # a sell is on-chain activity too — count it
     mem.log_trade(sym, "sell", held, tx, sc)
     return Action(sym, "exit", sc, held, tx, "distribution — closed position", True)
 
@@ -119,7 +136,11 @@ def _try_enter(rm: RiskManager, sym: str, sc: float, rationale: str,
     ok, reason = rm.allows(sym, size, portfolio_usd)
     if not ok:
         return Action(sym, "long", sc, size, "", reason, False)
-    tx = twak.execute_trade(sym, "buy", size)
+    try:
+        tx = twak.execute_trade(sym, "buy", size)
+    except Exception as e:                        # broadcast failed — do NOT record/count
+        log.warning("entry %s failed: %s", sym, e)
+        return Action(sym, "long", sc, size, "", f"buy failed: {e}", False)
     rm.record_trade(sym)
     if mem is not None:
         mem.log_trade(sym, "buy", size, tx, sc)
