@@ -9,7 +9,7 @@ enforces every guardrail before a trade is allowed:
   - Position sizing      : cap any single trade at MAX_POSITION_PCT of portfolio.
   - Cooldown             : no re-trade of the same token within COOLDOWN_MINUTES.
   - Daily cap            : reject new entries past MAX_TRADES_PER_DAY (anti-churn / fee drag).
-  - Daily-floor nudge    : surface when no trade has happened today (qualification).
+  - Daily-floor nudge    : near day-end, surface a trade if none happened today (qualification).
   - Dust guard           : flag when the portfolio is at/below DUST_FLOOR_USD.
 
 The drawdown check is unconditional even when scoring is uncertain — call
@@ -103,9 +103,16 @@ class RiskManager:
         self._trades_total += 1
 
     def needs_daily_floor_trade(self) -> bool:
-        """True if no trade has happened today — qualification protection (>=1 trade/day)."""
+        """True if no trade yet today AND the UTC day is closing — qualification (>=1 trade/day).
+
+        Gated to the final hours (DAILY_FLOOR_HOUR_UTC) so the agent waits for a quality
+        setup most of the day and only forces a sub-threshold trade near day-end.
+        """
         self._roll_day()
-        return self._trades_today < settings.DAILY_TRADE_FLOOR
+        if self._trades_today >= settings.DAILY_TRADE_FLOOR:
+            return False
+        hour = datetime.fromtimestamp(self.now_fn(), tz=timezone.utc).hour
+        return hour >= settings.DAILY_FLOOR_HOUR_UTC
 
     def is_dust(self, current_usd: float | None = None) -> bool:
         """True if the portfolio is at/below the dust floor (those hours score 0%)."""

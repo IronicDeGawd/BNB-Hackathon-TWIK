@@ -85,13 +85,22 @@ def test_dust_guard_blocks_trade():
 
 
 def test_daily_floor_and_rollover():
-    clk = Clock()
+    clk = Clock()                                              # base 1.7e9 == 22:13 UTC (past floor hour)
     rm = _rm(clk)
-    assert rm.needs_daily_floor_trade() is True                # nothing yet today
+    assert rm.needs_daily_floor_trade() is True                # nothing yet today, day closing
     rm.record_trade(ELIGIBLE_SYM)
     assert rm.needs_daily_floor_trade() is False               # traded today
     clk.advance(24 * 3600 + 1)                                 # next day
-    assert rm.needs_daily_floor_trade() is True                # counter reset
+    assert rm.needs_daily_floor_trade() is True                # counter reset, still late hour
+
+
+def test_daily_floor_held_until_day_closes():
+    # 08:00 UTC: zero trades, but it is early — do NOT force a sub-threshold trade yet.
+    early = Clock(t=1_699_948_800.0)                           # 2023-11-14T08:00:00 UTC
+    rm = _rm(early)
+    assert rm.needs_daily_floor_trade() is False
+    early.advance(settings.DAILY_FLOOR_HOUR_UTC * 3600 - 8 * 3600)  # advance to the floor hour
+    assert rm.needs_daily_floor_trade() is True
 
 
 def test_daily_trade_cap_blocks_overtrading():
