@@ -36,7 +36,7 @@ Cycle cadence: **every 15 minutes** (96 cycles/day).
 ## Repo layout
 
 ```
-config/      tokens (149 eligible), watchlist (~25), settings (single source of truth)
+config/      tokens (148 eligible), watchlist (25), settings (single source of truth)
 signals/     twitter, reddit, onchain, cmc collectors
 brain/       divergence detector, conviction scorer, sqlite memory
 risk/        guardrails — the disqualifier defense
@@ -50,32 +50,35 @@ agent.py     main loop      backtest.py  offline replay      tests/  scorer + ri
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # then fill secrets — NEVER commit .env
-pytest                      # config smoke tests run today (no keys needed)
+pytest                      # 74 tests, no keys needed
 ```
+
+## Running
+
+```bash
+# 1) register the agent wallet on-chain (one-time; needs BNB for gas)
+export TWAK_WALLET_PASSWORD=<wallet password>
+twak compete register && twak compete status      # expect registered: true
+
+# 2) run the agent. DRY_RUN=true (default) simulates; set false to trade live on BSC.
+DRY_RUN=true  python agent.py     # paper run — nothing broadcast
+DRY_RUN=false python agent.py     # LIVE — signs + broadcasts real BSC swaps
+```
+
+The rationale line is written by **Gemini Flash via Vertex AI** (ADC auth, set `VERTEX_PROJECT`);
+it is off the hot path and falls back to a deterministic template on any error — it never blocks a trade.
 
 ## Status
 
-Scaffold stage. Module logic is stubbed by build phase (A–E) per the build spec.
+Built and operational, registered on-chain for Track 1, **74 tests pass**.
 
-- [ ] **Phase A** — config foundations (settings done; **token addresses unresolved**)
-- [ ] **Phase B** — signal collectors (twitter, reddit, onchain, cmc)
-- [ ] **Phase C** — brain (divergence, conviction, memory)
-- [ ] **Phase D** — risk guardrails + TWAK execution
-- [ ] **Phase E** — main loop + backtest
-
-> ⚠️ `config/tokens.py` addresses are intentionally `None`. They must be resolved to canonical,
-> BscScan+CMC-verified BEP-20 contracts before any live trade. An unverified address risks swapping
-> into a clone/scam contract.
-
-## Submission checklist
-
-- [ ] Public repo + clean README + architecture diagram
-- [ ] On-chain proof: agent wallet address + sample tx hashes (BscScan links)
-- [ ] Demo video — self-custody + autonomous-signing loop end to end
-- [ ] Strategy writeup on DoraHacks (divergence thesis + results)
-- [ ] Agent registered on-chain **before June 22** trading window
-- [ ] `rationale_text` surfaced in demo so judges see WHY each trade fired
+- Config foundations — settings, 148-token allowlist, 25-token watchlist; addresses resolved 111/148 (watchlist 23/25)
+- Signal collectors — twitter, reddit, onchain (smart-wallet flow), cmc
+- Brain — divergence detector, conviction scorer, sqlite memory
+- Risk guardrails — drawdown kill switch, sizing, daily cap + day-end floor — and TWAK execution
+- Main loop + offline backtest
+- Registered on-chain via `twak compete register` — wallet `0x4d5812150DBBd2D0116c54b420BB10d1dB9BB583` (BSC)
 
 ## Timeline
 
-Build closes **June 21** · live trading **June 22–28** · judging **June 29 – July 5**.
+Live trading **June 22–28** · judging **June 29 – July 5**.
