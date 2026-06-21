@@ -1,7 +1,13 @@
 # Secrets
 .env
+*.env
 *.key
 *.pem
+keystore*.json
+UTC--*.json
+
+# Local recovery scratch (never commit)
+.recovered-notes/
 
 # Context (never commit — local working state)
 context/
