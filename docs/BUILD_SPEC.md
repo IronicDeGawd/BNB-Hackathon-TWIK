@@ -28,7 +28,7 @@ intentionally small; the edge is in the signal, not the size.
 
 | Constraint | Value |
 |---|---|
-| Eligible tokens | Fixed list of 149 BEP-20 tokens on CMC |
+| Eligible tokens | 149 line-items on CMC → 148 unique (SLX duplicated) |
 | Min trades to qualify | ≥1 trade/day, ≥7 over the trading week |
 | Max drawdown gate | DISQUALIFY if breached (assume 30%) |
 | Non-zero in-scope balance at start | required to be ranked |
@@ -65,8 +65,8 @@ Cadence: every 15 minutes (96 cycles/day). Twitter budget ≈ 10 calls/cycle (ba
 ## 5. Module specs — build order
 
 ### Phase A — Foundations
-- `config/tokens.py`: 149 eligible symbols + verified canonical BEP-20 addresses. `ELIGIBLE` +
-  `is_eligible()`.
+- `config/tokens.py`: 148 unique eligible symbols (from 149 line-items, SLX duplicated) +
+  BEP-20 addresses (111/148 resolved; watchlist 23/25). `ELIGIBLE` + `is_eligible()`.
 - `config/watchlist.py`: ~25 liquid, social-active tokens (subset). Candidates: CAKE, AVAX, LINK,
   UNI, AAVE, DOT, ATOM, INJ, FET, BONK, FLOKI, PENGU, TWT, SFP, ASTER. Confirm BSC pool depth.
 - `config/settings.py`: single source of truth — cadence, thresholds, risk params, weights.
