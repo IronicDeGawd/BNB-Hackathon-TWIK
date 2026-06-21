@@ -53,6 +53,14 @@ def test_allowlist_blocks_offlist_token():
     assert rm.allows(ELIGIBLE_SYM, 10.0)[0] is True
 
 
+def test_zero_size_trade_rejected():
+    rm = _rm()
+    rm.update_drawdown(1000.0)
+    ok, reason = rm.allows(ELIGIBLE_SYM, 0.0)
+    assert ok is False and "zero" in reason
+    assert rm.allows(ELIGIBLE_SYM, -5.0)[0] is False
+
+
 def test_position_size_caps_at_max_pct():
     rm = _rm()
     cap = 1000 * settings.MAX_POSITION_PCT / 100

@@ -64,6 +64,8 @@ class RiskManager:
             return False, "kill switch tripped (drawdown breached)"
         if not is_eligible(symbol):
             return False, f"{symbol} not on eligible allowlist"
+        if size_usd <= 0:
+            return False, "trade size is zero"
 
         self._roll_day()
         if self._trades_today >= settings.MAX_TRADES_PER_DAY:
