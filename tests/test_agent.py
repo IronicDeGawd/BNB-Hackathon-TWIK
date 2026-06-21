@@ -3,6 +3,7 @@
 import pytest
 
 from config import settings
+from execution import twak
 from agent import run_cycle
 from risk.guardrails import RiskManager
 from brain.memory import Memory
@@ -18,6 +19,9 @@ PF = 100.0
 @pytest.fixture(autouse=True)
 def dry_run(monkeypatch):
     monkeypatch.setenv("DRY_RUN", "true")
+    twak._reset_dry_run()
+    yield
+    twak._reset_dry_run()
 
 
 def _on(flow):

@@ -24,21 +24,39 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 
 from config.settings import SLIPPAGE_BPS
+from config.tokens import is_eligible
 
 log = logging.getLogger("conviction.twak")
 
 TWAK_BIN = os.getenv("TWAK_BIN", "twak")
 QUOTE_TOKEN = os.getenv("QUOTE_TOKEN", "USDT")          # base currency we buy/sell against on BSC
 
+_TX_HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")           # a real BSC tx hash
 _sim_nonce = 0
+_live_frozen: bool | None = None                        # cached simulate/live decision
 
 
 # --------------------------------------------------------------------------- #
 def _dry_run() -> bool:
-    return os.getenv("DRY_RUN", "true").strip().lower() not in ("false", "0", "no")
+    """True unless DRY_RUN is explicitly false/0/no.
+
+    Frozen on first call so the simulate/live decision cannot flip mid-process
+    (e.g. a later load_dotenv(override=True)). Tests reset via _reset_dry_run().
+    """
+    global _live_frozen
+    if _live_frozen is None:
+        _live_frozen = os.getenv("DRY_RUN", "true").strip().lower() not in ("false", "0", "no")
+    return _live_frozen
+
+
+def _reset_dry_run() -> None:
+    """Test hook: clear the frozen value so the next _dry_run() re-reads the env."""
+    global _live_frozen
+    _live_frozen = None
 
 
 def _sim_hash(*parts: str) -> str:
@@ -154,6 +172,8 @@ def execute_trade(symbol: str, side: str, amount: float) -> str:
         log.info("[DRY_RUN] %s %s %s -> %s", side, symbol, _fmt(amount), h)
         return h
 
+    if not is_eligible(symbol):                  # defense in depth — never broadcast off-allowlist
+        raise RuntimeError(f"refusing to trade off-allowlist symbol: {symbol}")
     _require_live_config()
     slippage_pct = SLIPPAGE_BPS / 100  # bps -> percent (100 bps = 1.0)
     frm, to = (QUOTE_TOKEN, symbol) if side == "buy" else (symbol, QUOTE_TOKEN)
@@ -161,9 +181,13 @@ def execute_trade(symbol: str, side: str, amount: float) -> str:
     out = _run(["swap", _fmt(amount), frm, to,
                 "--chain", "bsc", "--slippage", f"{slippage_pct}", "--json"])
     try:
-        return json.loads(out).get("txHash") or json.loads(out).get("hash") or out
+        d = json.loads(out)
+        tx = d.get("txHash") or d.get("hash") or ""
     except Exception:
-        return out
+        tx = out.strip()
+    if not _TX_HASH.match(tx):                    # don't let arbitrary stdout become a "confirmed" trade
+        raise RuntimeError(f"swap did not return a valid tx hash (output: {out[:200]!r})")
+    return tx
 
 
 def pay_x402(endpoint: str) -> bool:
