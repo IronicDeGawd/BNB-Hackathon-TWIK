@@ -17,7 +17,7 @@ import os
 
 log = logging.getLogger("conviction.llm_confirm")
 
-_MODEL = "gemini-2.5-flash"
+_MODEL = "gemini-2.5-pro"      # veto judgment — sharper than flash, volume is tiny (one call/entry)
 
 
 def _enabled() -> bool:
@@ -40,8 +40,7 @@ def _query_gemini(prompt: str) -> dict:
         model=_MODEL, contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json", response_schema=schema,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            max_output_tokens=200))
+            max_output_tokens=1024))   # 2.5-pro always reasons; leave room for thinking + JSON
     return json.loads(resp.text)
 
 
