@@ -1,4 +1,4 @@
-"""Conviction Agent — main loop.
+"""Vantage — main loop.
 
 every CYCLE_MINUTES:
     collect signals (onchain, twitter, reddit, cmc)  — each fault-isolated
@@ -67,10 +67,10 @@ def collect_signals(watchlist, wallets=None, address_map=None, prices=None, mem=
 def portfolio_value(mem: Memory | None = None) -> float:
     """Total portfolio in USD = liquid (USDT + BNB) + held alt-token positions.
 
-    `twak wallet portfolio` only lists native + USDT, NOT the alt-tokens the agent buys,
-    so held positions are added from Memory (at entry cost — a conservative mark; live
-    mark-to-market is a refinement). Without this, holding a bought token reads as a loss
-    and can falsely trip the drawdown kill switch.
+    `twak wallet portfolio` only lists native + USDT, NOT the alt-tokens the agent buys.
+    Live: each held position is marked to market via twak.get_token_value (real price);
+    dry-run: cost basis from Memory. Without this, holding a bought token reads as a loss
+    and falsely trips the drawdown kill switch.
 
     In LIVE mode an empty/zero read is a hard error so the caller skips the cycle.
     """
@@ -187,9 +187,9 @@ def main() -> None:
     rm = RiskManager(mem=mem)                     # restores drawdown peak + kill switch from prior runs
     live = not twak._dry_run()
     heartbeat_every = int(os.getenv("HEARTBEAT_CYCLES", "4"))   # 4 cycles @15m = hourly
-    log.info("Conviction Agent up | cycle=%dm | watchlist=%d | dry_run=%s",
+    log.info("Vantage up | cycle=%dm | watchlist=%d | dry_run=%s",
              settings.CYCLE_MINUTES, len(WATCHLIST), twak._dry_run())
-    notify.send(f"🟢 <b>Conviction Agent up</b>\nmode: {'LIVE' if live else 'paper'} | "
+    notify.send(f"🟢 <b>Vantage up</b>\nmode: {'LIVE' if live else 'paper'} | "
                 f"cycle {settings.CYCLE_MINUTES}m | watchlist {len(WATCHLIST)}")
     cycles, last_err = 0, ""
     while True:

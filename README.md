@@ -1,34 +1,40 @@
-# Conviction Agent
+# Vantage
 
-> A crypto-native autonomous trading agent for the **BNB Hack: AI Trading Agent Edition (Track 1)**.
-> Trade the **divergence** between what retail says (Twitter + Reddit hype) and what smart money does
-> (BSC on-chain wallet flow) — gated by CoinMarketCap structural data and hard risk rules.
+> An autonomous BSC trading agent for the **BNB Hack: AI Trading Agent Edition (Track 1)**.
+> Reads markets via **CoinMarketCap** (price momentum + structural data), trades the **divergence**
+> against retail social hype, and signs + broadcasts its own BSC trades via **Trust Wallet Agent Kit**.
 
 ## The pitch
 
 Most social-sentiment bots are lagging indicators: by the time a coin is trending, the move is
-priced in. Conviction Agent inverts this. It treats **social hype** and **on-chain smart-money flow**
-as two independent signals and only acts when they *disagree in an exploitable way* — whales quietly
-accumulating a coin retail hasn't noticed yet (early entry), or retail euphoric while smart wallets
-distribute (early exit). CoinMarketCap data is the sanity-check layer (liquidity, funding, Fear &
-Greed). Trust Wallet Agent Kit (TWAK) is the self-custody execution layer — the agent signs and
-broadcasts its own trades on BSC, hands-off, inside hard risk guardrails. Capital at risk is small;
-the edge is in the signal, not the size.
+priced in. Vantage inverts this. The **primary signal is CMC price momentum** (the intended
+"read markets via CMC" data source); it trades the **divergence** against retail social: price moving
+while social is still flat = early accumulation (long); falling into social euphoria = distribution
+(exit). CoinMarketCap structural data (liquidity, funding, Fear & Greed) is a hard **veto** layer, and
+a Gemini risk-reviewer can veto a live entry. On-chain smart-money wallet flow is an **optional bonus**
+axis (off unless a keyed RPC feeds it). Trust Wallet Agent Kit (TWAK) is the self-custody execution
+layer — the agent signs and broadcasts its own swaps on BSC, hands-off, inside hard risk guardrails
+(mark-to-market drawdown kill switch, per-token cap). Capital at risk is small; the edge is in the signal.
 
 ## Architecture
 
 ```
-   SIGNAL      Twitter/X + Reddit      BSC on-chain          CMC Agent Hub
-   SOURCES     mention velocity        smart-wallet flow     F&G, funding, liquidity
-                      └───────────────────┼───────────────────┘
-                                          ▼
-                            Divergence detector  (CMC = sanity filter)
-                                          ▼
-                            Conviction scorer    (0–100, direction + confidence)
-                                          ▼
-                            Risk gate            (drawdown, allowlist, sizing, kill switch)
-                                          ▼
-                            TWAK autonomous exec (local sign + x402 + BSC)
+   SIGNALS     CMC momentum (PRIMARY)   Twitter/Reddit     CMC structural    [on-chain flow]
+               1h price move            social velocity    liquidity/F&G     optional bonus
+                      └───────────────────────┼────────────────────────────────────┘
+                                              ▼
+                            Divergence detector  (momentum vs social)
+                                              ▼
+                            Conviction scorer    (0–100, setup-conditional)
+                                              ▼
+                            Risk gate            (mark-to-market drawdown kill switch,
+                                                  allowlist, per-token cap, daily floor)
+                                              ▼
+                            Gemini veto          (history-aware, fail-open)
+                                              ▼
+                            TWAK autonomous exec (local sign + BSC swaps)
+                                              ▼
+                            Telegram stream      (PnL + trade alerts, every 15m)
 ```
 
 Cycle cadence: **every 15 minutes** (96 cycles/day).
@@ -37,11 +43,11 @@ Cycle cadence: **every 15 minutes** (96 cycles/day).
 
 ```
 config/      tokens (148 eligible), watchlist (25), settings (single source of truth)
-signals/     twitter, reddit, onchain, cmc collectors
-brain/       divergence detector, conviction scorer, sqlite memory
-risk/        guardrails — the disqualifier defense
-execution/   twak — the only signer
-agent.py     main loop      backtest.py  offline replay      tests/  scorer + risk-gate tests
+signals/     cmc (PRIMARY momentum + structural veto), twitter, reddit, onchain (optional bonus)
+brain/       divergence detector, conviction scorer, sqlite memory, llm_confirm (Gemini veto)
+risk/        guardrails — mark-to-market drawdown kill switch, per-token cap, daily floor
+execution/   twak (signer + balances), notify (Telegram stream)
+agent.py     main loop      backtest.py  offline replay      tests/  89 tests
 ```
 
 ## Setup
@@ -50,7 +56,7 @@ agent.py     main loop      backtest.py  offline replay      tests/  scorer + ri
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # then fill secrets — NEVER commit .env
-pytest                      # 74 tests, no keys needed
+pytest                      # 89 tests, no keys needed
 ```
 
 ## Running
@@ -65,19 +71,23 @@ DRY_RUN=true  python agent.py     # paper run — nothing broadcast
 DRY_RUN=false python agent.py     # LIVE — signs + broadcasts real BSC swaps
 ```
 
-The rationale line is written by **Gemini Flash via Vertex AI** (ADC auth, set `VERTEX_PROJECT`);
-it is off the hot path and falls back to a deterministic template on any error — it never blocks a trade.
+**Gemini 2.5 (Vertex AI / ADC)** does two off-hot-path jobs: writes the one-line trade rationale,
+and — when `LLM_CONFIRM=true` — acts as a history-aware **veto** on live entries. Both fail open
+(any error → template / allow), so the LLM never blocks or stalls a trade.
+
+**Telegram:** set `TELEGRAM_RELAY_URL` (a relay box that can reach Telegram) or `TELEGRAM_BOT_TOKEN`
++ `TELEGRAM_CHAT_ID` to stream PnL + trade alerts. Heartbeat cadence via `HEARTBEAT_CYCLES`.
 
 ## Status
 
-Built and operational, registered on-chain for Track 1, **74 tests pass**.
+Built, **live on BSC**, registered on-chain for Track 1, **89 tests pass**.
 
-- Config foundations — settings, 148-token allowlist, 25-token watchlist; addresses resolved 111/148 (watchlist 23/25)
-- Signal collectors — twitter, reddit, onchain (smart-wallet flow), cmc
-- Brain — divergence detector, conviction scorer, sqlite memory
-- Risk guardrails — drawdown kill switch, sizing, daily cap + day-end floor — and TWAK execution
-- Main loop + offline backtest
-- Registered on-chain via `twak compete register` — wallet `0x4d5812150DBBd2D0116c54b420BB10d1dB9BB583` (BSC)
+- **Signal** — CMC 1h momentum (primary) + Twitter velocity + CMC structural veto; on-chain wallet flow optional
+- **Brain** — divergence detector, setup-conditional conviction scorer, sqlite memory, Gemini veto
+- **Risk** — mark-to-market drawdown kill switch (25%, below the 30% DQ), per-token cap, cooldown, daily floor
+- **Execution** — TWAK self-custody swaps on BSC (USDT↔token); registered, funded
+- **Ops** — runs unattended (cron watchdog), streams PnL + trades to Telegram every 15m
+- Agent wallet `0x4d5812150DBBd2D0116c54b420BB10d1dB9BB583` (BSC)
 
 ## Timeline
 
