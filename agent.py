@@ -26,6 +26,7 @@ from config.tokens import is_eligible
 from signals import onchain, twitter, reddit, cmc
 from brain.divergence import detect
 from brain.conviction import score
+from brain import llm_confirm
 from risk.guardrails import RiskManager
 from brain.memory import Memory
 from execution import twak
@@ -106,7 +107,11 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
             continue
 
         if conv.score >= settings.CONVICTION_THRESHOLD:
-            actions.append(_try_enter(rm, sym, conv.score, conv.rationale_text, portfolio_usd, mem))
+            allow, why = llm_confirm.confirm(div, conv, mem, state.drawdown_pct, rm.trades_today)
+            if not allow:
+                actions.append(Action(sym, "long", conv.score, 0.0, "", f"LLM veto: {why}", False))
+            else:
+                actions.append(_try_enter(rm, sym, conv.score, conv.rationale_text, portfolio_usd, mem))
         else:
             below_threshold.append(conv)
 

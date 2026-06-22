@@ -117,6 +117,23 @@ def test_daily_floor_skips_subscore_junk():
     assert len(actions) == 1 and actions[0].executed         # floor fires
 
 
+def test_llm_veto_blocks_entry(monkeypatch):
+    from brain import llm_confirm
+    monkeypatch.setenv("VERTEX_PROJECT", "proj")
+    monkeypatch.setenv("LLM_CONFIRM", "true")
+    monkeypatch.setattr("brain.conviction.make_rationale", lambda *a: "stub")   # keep offline
+    monkeypatch.setattr(llm_confirm, "_query_gemini",
+                        lambda p: {"allow": False, "reason": "re-buying just-sold token"})
+    rm = RiskManager()
+    maps = (
+        {"CAKE": _on(STRONG)}, {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
+        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+    )
+    actions = run_cycle(rm, ["CAKE"], *maps, PF)
+    assert all(not a.executed for a in actions)             # deterministic long, vetoed by LLM
+    assert any("LLM veto" in a.reason for a in actions)
+
+
 def test_buy_is_recorded_in_memory():
     rm = RiskManager()
     mem = Memory(db_path=":memory:")
