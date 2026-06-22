@@ -32,7 +32,7 @@ CAPITAL_AT_RISK_USD = 20          # ceiling on capital exposed (funding ~$20, no
 PAPER_PORTFOLIO_USD = 20.0        # assumed portfolio value in DRY_RUN when balances are empty
 
 # --- Signal windows ---
-ONCHAIN_FLOW_WINDOW_HOURS = 6     # trailing window for smart-money net flow
+ONCHAIN_FLOW_WINDOW_HOURS = 1     # trailing window for smart-money net flow (small enough for public dataseed getLogs)
 SOCIAL_BASELINE_HOURS = 24        # rolling baseline for mention-velocity ratio
 REDDIT_EVERY_N_CYCLES = 2         # poll Reddit less often (fallback-quality source)
 
