@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 
 from web3 import Web3
@@ -32,6 +33,7 @@ log = logging.getLogger("conviction.onchain")
 DEFAULT_RPC = "https://bsc-rpc.publicnode.com"
 CHUNK_BLOCKS = 1000          # under the ~2000 public getLogs limit
 FLAT_EPS = 1e-9             # |net| below this counts as "flat"
+RPC_DELAY_S = float(os.getenv("ONCHAIN_RPC_DELAY", "0.3"))  # throttle to stay under public RPC burst limits
 
 # Smart-wallet set. Auto-seeded by scripts/discover_smart_wallets.py (recent net-accumulator
 # EOAs) into config/smart_wallets.py. Heuristic seed — refine with a labeled set before scaling capital.
@@ -133,6 +135,8 @@ def _fetch_events(contract, wallets: list[str], from_block: int,
             for lg in logs:
                 a = lg["args"]
                 out.append((a["from"], a["to"], a["value"]))
+            if RPC_DELAY_S:
+                time.sleep(RPC_DELAY_S)            # throttle: avoid public RPC burst rate limits
         lo = hi + 1
     # the from-query and to-query can both return a self->tracked or tracked->tracked
     # transfer; dedupe by (block, logIndex) is overkill here since aggregate nets them,
@@ -196,6 +200,8 @@ def collect(watchlist: list[str], address_map: dict[str, str] | None = None,
         except Exception as e:
             log.warning("on-chain read failed for %s: %s", sym, e)
             out[sym] = OnchainSignal(sym, 0.0, None, 0, "flat")
+        if RPC_DELAY_S:
+            time.sleep(RPC_DELAY_S)               # space token reads to respect public RPC limits
     return out
 
 
