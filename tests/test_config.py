@@ -28,8 +28,9 @@ def test_internal_drawdown_below_disqualifier():
 
 
 def test_scorer_weights_sum_to_one():
+    # Core weights sum to 1.0; the on-chain bonus is additive on top (optional axis).
     total = (
-        settings.WEIGHT_ONCHAIN_FLOW
+        settings.WEIGHT_CMC_MOMENTUM
         + settings.WEIGHT_SOCIAL_VELOCITY
         + settings.WEIGHT_SOCIAL_AGREEMENT
         + settings.WEIGHT_CMC_STRUCTURAL

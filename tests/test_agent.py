@@ -13,6 +13,7 @@ from signals.reddit import RedditSignal
 from signals.cmc import CmcSignal
 
 STRONG = settings.ONCHAIN_STRONG_FLOW_USD * 2
+MOM = settings.CMC_MOMENTUM_STRONG_PCT * 2          # strong CMC momentum (primary axis)
 PF = 100.0
 
 
@@ -33,7 +34,7 @@ def test_accumulation_fires_a_dry_trade():
     maps = (
         {"CAKE": _on(STRONG)},                       # strong inflow
         {"CAKE": TwitterSignal("CAKE", 50, 0.4)},    # quiet social
-        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, MOM)},
     )
     actions = run_cycle(rm, ["CAKE"], *maps, PF)
     longs = [a for a in actions if a.direction == "long" and a.executed]
@@ -47,7 +48,7 @@ def test_cmc_veto_blocks_trade():
     maps = (
         {"CAKE": _on(STRONG)},
         {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
-        {}, {"CAKE": CmcSignal("CAKE", 0.0, 0.0, False)},   # veto
+        {}, {"CAKE": CmcSignal("CAKE", 0.0, 0.0, False, MOM)},   # momentum up but structural veto
     )
     actions = run_cycle(rm, ["CAKE"], *maps, PF)
     assert all(not a.executed for a in actions)
@@ -60,7 +61,7 @@ def test_kill_switch_blocks_entries():
     maps = (
         {"CAKE": _on(STRONG)},
         {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
-        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, MOM)},
     )
     actions = run_cycle(rm, ["CAKE"], *maps, PF)
     assert all(not (a.direction == "long" and a.executed) for a in actions)
@@ -85,10 +86,10 @@ def test_distribution_exit_sells_held_position():
     mem = Memory(db_path=":memory:")
     mem.log_trade("CAKE", "buy", 20.0, "0xprev", 90.0)     # we hold CAKE
     maps = (
-        {"CAKE": _on(-STRONG)},                            # smart money leaving
+        {"CAKE": _on(-STRONG)},                            # on-chain bonus (optional)
         {"CAKE": TwitterSignal("CAKE", 900, 2.6)},         # retail euphoric
         {"CAKE": RedditSignal("CAKE", 0.7, 0.8)},          # reddit agrees
-        {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+        {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, -MOM)},  # momentum DOWN -> distribution
     )
     actions = run_cycle(rm, ["CAKE"], *maps, PF, mem)
     exits = [a for a in actions if a.direction == "exit" and a.executed]
@@ -127,7 +128,7 @@ def test_llm_veto_blocks_entry(monkeypatch):
     rm = RiskManager()
     maps = (
         {"CAKE": _on(STRONG)}, {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
-        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, MOM)},
     )
     actions = run_cycle(rm, ["CAKE"], *maps, PF)
     assert all(not a.executed for a in actions)             # deterministic long, vetoed by LLM
@@ -139,7 +140,7 @@ def test_buy_is_recorded_in_memory():
     mem = Memory(db_path=":memory:")
     maps = (
         {"CAKE": _on(STRONG)}, {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
-        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)},
+        {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, MOM)},
     )
     run_cycle(rm, ["CAKE"], *maps, PF, mem)
     assert mem.holding("CAKE") > 0                          # buy persisted

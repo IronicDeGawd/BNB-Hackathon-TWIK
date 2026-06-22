@@ -1,11 +1,11 @@
 """Core IP — detect exploitable disagreement between social hype and on-chain flow.
 
-Setups:
-  ACCUMULATION  (long, highest)  : on-chain flow strongly +, social velocity still low/flat
-                                   (whales in before the crowd)
-  CONFIRMATION  (long, lower)    : on-chain +, social rising, Reddit agreeing (more priced in)
-  DISTRIBUTION  (exit/avoid)     : social euphoric (Twitter + Reddit hot) AND on-chain flow -
-                                   (smart money selling into retail)
+Setups (PRIMARY axis = CMC 1h price momentum; on-chain wallet flow is an optional bonus):
+  ACCUMULATION  (long, highest)  : momentum strongly +, social velocity still low/flat
+                                   (price moving before the crowd notices)
+  CONFIRMATION  (long, lower)    : momentum +, social rising, Reddit agreeing (more priced in)
+  DISTRIBUTION  (exit/avoid)     : social euphoric (Twitter + Reddit hot) AND momentum -
+                                   (rolling over into retail euphoria)
   NO_TRADE                       : ambiguous, or only one axis firing
 
 Output: a structured DivergenceSignal per token (NOT a single number yet).
@@ -30,10 +30,11 @@ class Setup(str, Enum):
 class DivergenceSignal:
     symbol: str
     setup: Setup
-    onchain_flow_usd: float        # net smart-money flow used (USD if priced, else token units)
+    onchain_flow_usd: float        # OPTIONAL smart-money wallet flow (bonus; 0 unless a keyed RPC feeds it)
     social_velocity: float
     reddit_agrees: bool
     structural_ok: bool
+    cmc_momentum_pct: float = 0.0  # PRIMARY axis — signed 1h % price move from CMC
 
 
 def _flow_value(onchain) -> float:
@@ -46,30 +47,32 @@ def _flow_value(onchain) -> float:
 
 
 def detect(symbol: str, twitter, reddit, onchain, cmc) -> DivergenceSignal:
-    """Combine the four signal axes into a divergence classification for one token.
+    """Combine the signal axes into a divergence classification for one token.
 
-    Any axis may be None (a collector down / not built yet); the classification
-    degrades safely. CMC is veto-only — missing CMC data does not block (structural_ok
-    defaults True), it only vetoes when it reports a problem.
+    PRIMARY axis = CMC 1h price momentum (the "read markets via CMC" data source).
+    On-chain wallet flow is an OPTIONAL bonus (0 unless a keyed RPC feeds it). Any axis
+    may be None; classification degrades safely. CMC structural is veto-only (missing data
+    does not block).
     """
-    flow = _flow_value(onchain)
+    momentum = getattr(cmc, "momentum_pct", 0.0) if cmc is not None else 0.0  # PRIMARY %
+    flow = _flow_value(onchain)                                               # optional bonus
     velocity = getattr(twitter, "velocity", 0.0) if twitter is not None else 0.0
     reddit_agrees = (reddit is not None
                      and getattr(reddit, "activity", 0.0) >= settings.REDDIT_HOT_ACTIVITY)
     structural_ok = getattr(cmc, "structural_ok", True) if cmc is not None else True
 
-    strong_in = flow >= settings.ONCHAIN_STRONG_FLOW_USD
-    strong_out = flow <= -settings.ONCHAIN_STRONG_FLOW_USD
+    strong_up = momentum >= settings.CMC_MOMENTUM_STRONG_PCT
+    strong_down = momentum <= -settings.CMC_MOMENTUM_STRONG_PCT
     social_hot = velocity >= settings.SOCIAL_VEL_HOT
     social_flat = velocity <= settings.SOCIAL_VEL_FLAT
 
-    if strong_in and social_flat:
-        setup = Setup.ACCUMULATION             # whales in before the crowd — best long
-    elif strong_in and social_hot and reddit_agrees:
+    if strong_up and social_flat:
+        setup = Setup.ACCUMULATION             # price moving, crowd not there yet — best long
+    elif strong_up and social_hot and reddit_agrees:
         setup = Setup.CONFIRMATION             # momentum, more priced in — weaker long
-    elif strong_out and social_hot and reddit_agrees:
-        setup = Setup.DISTRIBUTION             # smart money selling into euphoria — exit
+    elif strong_down and social_hot and reddit_agrees:
+        setup = Setup.DISTRIBUTION             # falling into euphoria — exit
     else:
         setup = Setup.NO_TRADE
 
-    return DivergenceSignal(symbol, setup, flow, velocity, reddit_agrees, structural_ok)
+    return DivergenceSignal(symbol, setup, flow, velocity, reddit_agrees, structural_ok, momentum)

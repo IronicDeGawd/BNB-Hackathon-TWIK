@@ -8,18 +8,22 @@ from signals.reddit import RedditSignal
 from signals.cmc import CmcSignal
 
 S = settings.ONCHAIN_STRONG_FLOW_USD * 2
-CMC_OK = {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True)}
+MOM = settings.CMC_MOMENTUM_STRONG_PCT * 2          # strong CMC momentum (primary axis)
+
+
+def _cmc(sym, mom):
+    return {sym: CmcSignal(sym, 1e6, 0.0, True, mom)}
 
 
 def _accum_frame(ts, price):
     return Frame(ts, {"CAKE": price}, {"CAKE": OnchainSignal("CAKE", S, S, 5, "in")},
-                 {"CAKE": TwitterSignal("CAKE", 40, 0.4)}, {}, CMC_OK)
+                 {"CAKE": TwitterSignal("CAKE", 40, 0.4)}, {}, _cmc("CAKE", MOM))
 
 
 def _exit_frame(ts, price):
     return Frame(ts, {"CAKE": price}, {"CAKE": OnchainSignal("CAKE", -S, -S, 5, "out")},
                  {"CAKE": TwitterSignal("CAKE", 900, 2.7)},
-                 {"CAKE": RedditSignal("CAKE", 0.6, 0.8)}, CMC_OK)
+                 {"CAKE": RedditSignal("CAKE", 0.6, 0.8)}, _cmc("CAKE", -MOM))
 
 
 def test_profitable_round_trip():
@@ -42,7 +46,7 @@ def test_drawdown_flags_disqualified():
     # A single position can't breach it — that's the position-sizing protection working.
     on = lambda: OnchainSignal("X", S, S, 5, "in")          # noqa: E731
     tw = lambda: TwitterSignal("X", 40, 0.4)                # noqa: E731
-    cmc = lambda s: {s: CmcSignal(s, 1e6, 0.0, True)}       # noqa: E731
+    cmc = lambda s: {s: CmcSignal(s, 1e6, 0.0, True, MOM)}  # noqa: E731
     accum = Frame(0, {"CAKE": 2.0, "AVAX": 2.0},
                   {"CAKE": on(), "AVAX": on()}, {"CAKE": tw(), "AVAX": tw()}, {},
                   {**cmc("CAKE"), **cmc("AVAX")})

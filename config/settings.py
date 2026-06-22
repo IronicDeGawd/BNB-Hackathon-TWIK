@@ -38,17 +38,19 @@ REDDIT_EVERY_N_CYCLES = 2         # poll Reddit less often (fallback-quality sou
 
 # --- Conviction scorer weights (rules-based core; must sum ~1.0) ---
 # Decision is deterministic. LLM is used ONLY to write rationale_text.
-WEIGHT_ONCHAIN_FLOW = 0.50        # highest — least manipulable
+WEIGHT_CMC_MOMENTUM = 0.50        # primary — CMC price/volume momentum (the intended data source)
 WEIGHT_SOCIAL_VELOCITY = 0.25
 WEIGHT_SOCIAL_AGREEMENT = 0.15    # Twitter + Reddit pointing the same way
 WEIGHT_CMC_STRUCTURAL = 0.10      # structural OK (veto handled separately)
+WEIGHT_ONCHAIN_BONUS = 0.10       # optional smart-money wallet flow, ADDED only if a keyed RPC feeds it
 
 # --- CMC structural veto (tune via backtest.py) ---
 CMC_MIN_LIQUIDITY_USD = 250_000.0   # 24h volume floor; below this = thin -> veto (slippage risk)
 CMC_MAX_FUNDING_ABS = 0.05         # |funding rate| above this, against intended direction -> veto
 
 # --- Divergence thresholds (brain; tune via backtest.py) ---
-ONCHAIN_STRONG_FLOW_USD = 5000    # |net smart-money flow| considered a strong on-chain signal
+CMC_MOMENTUM_STRONG_PCT = 1.0     # |1h % price change| at/above = strong directional (primary axis)
+ONCHAIN_STRONG_FLOW_USD = 5000    # |net smart-money flow| considered strong (bonus axis, if RPC feeds it)
 SOCIAL_VEL_HOT = 2.0              # mention velocity at/above this = retail euphoric
 SOCIAL_VEL_FLAT = 1.2            # velocity at/below this = retail asleep (good for accumulation)
 REDDIT_HOT_ACTIVITY = 0.5       # normalized reddit activity at/above this = social agreement

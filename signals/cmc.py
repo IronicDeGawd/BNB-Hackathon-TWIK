@@ -1,6 +1,7 @@
-"""Structural sanity layer — CMC (CoinMarketCap) data, free for the hackathon.
+"""Primary market signal + structural veto — CMC (CoinMarketCap) data, free for the hackathon.
 
-Does NOT generate trade signals. It VETOES: block a trade when liquidity is too thin
+Provides the PRIMARY directional signal (1h price momentum) — the intended "read markets
+via CMC" data source — AND a structural veto: block a trade when liquidity is too thin
 (slippage risk) or funding is stretched hard against the intended direction.
 
 Uses the Pro REST API directly (deterministic, no tool-selection guesswork):
@@ -35,6 +36,7 @@ class CmcSignal:
     liquidity_usd: float | None
     funding_rate: float | None
     structural_ok: bool             # False => veto any trade on this token
+    momentum_pct: float = 0.0       # signed 1h % price change — PRIMARY directional signal
 
 
 # --------------------------------------------------------------------------- #
@@ -114,36 +116,39 @@ def fear_greed() -> int:
         return 50
 
 
-def _fetch_liquidity(symbols: list[str]) -> dict[str, float | None]:
-    """24h USD volume per symbol (liquidity proxy), batched in one call.
+def _fetch_quotes(symbols: list[str]) -> dict[str, tuple[float | None, float]]:
+    """Per symbol: (24h USD volume [liquidity proxy], signed 1h % change [momentum]).
 
-    Uses the Agent Hub MCP when CMC_TRANSPORT=mcp; falls back to REST on error.
+    Batched in one call. Uses the Agent Hub MCP when CMC_TRANSPORT=mcp; falls back to REST.
     """
     if _use_mcp():
         try:
             from signals import cmc_mcp
             d = cmc_mcp.call_tool(cmc_mcp.TOOL_QUOTES, {"symbol": ",".join(symbols), "convert": "USD"})
             data = _dig(d, ["data"]) or d
-            out: dict[str, float | None] = {}
+            out: dict[str, tuple[float | None, float]] = {}
             for sym in symbols:
                 entry = data.get(sym) if isinstance(data, dict) else None
                 rec = entry[0] if isinstance(entry, list) and entry else entry
-                out[sym] = float(_dig(rec or {}, ["quote", "USD", "volume_24h"], ["volume_24h"]) or 0) or None
-            if any(v is not None for v in out.values()):
+                vol = float(_dig(rec or {}, ["quote", "USD", "volume_24h"], ["volume_24h"]) or 0) or None
+                mom = float(_dig(rec or {}, ["quote", "USD", "percent_change_1h"], ["percent_change_1h"]) or 0)
+                out[sym] = (vol, mom)
+            if any(v is not None for v, _ in out.values()):
                 return out
-            log.warning("MCP quotes: no volume parsed -> REST")
+            log.warning("MCP quotes: nothing parsed -> REST")
         except Exception as e:
-            log.warning("MCP liquidity failed (%s) -> REST", e)
+            log.warning("MCP quotes failed (%s) -> REST", e)
     data = _get("/v2/cryptocurrency/quotes/latest",
                 {"symbol": ",".join(symbols), "convert": "USD"}).get("data", {})
-    out: dict[str, float | None] = {}
+    out: dict[str, tuple[float | None, float]] = {}
     for sym in symbols:
         entry = data.get(sym)
         rec = entry[0] if isinstance(entry, list) and entry else entry
         try:
-            out[sym] = float(rec["quote"]["USD"]["volume_24h"])
+            q = rec["quote"]["USD"]
+            out[sym] = (float(q["volume_24h"]), float(q.get("percent_change_1h") or 0))
         except (TypeError, KeyError, IndexError):
-            out[sym] = None
+            out[sym] = (None, 0.0)
     return out
 
 
@@ -152,21 +157,21 @@ def collect(watchlist: list[str],
     """Per-token structural read + veto decision. Veto-only and fault-tolerant:
     no key or any failure -> structural_ok True for all (never blocks the loop)."""
     if not _api_key():
-        log.warning("no CMC_API_KEY — structural layer passive (no vetoes)")
+        log.warning("no CMC_API_KEY — structural layer passive (no vetoes, flat momentum)")
         return {s: CmcSignal(s, None, None, True) for s in watchlist}
 
     try:
-        liquidity = _fetch_liquidity(watchlist)
+        quotes = _fetch_quotes(watchlist)
     except Exception as e:
-        log.warning("CMC liquidity fetch failed: %s — passive", e)
+        log.warning("CMC quotes fetch failed: %s — passive", e)
         return {s: CmcSignal(s, None, None, True) for s in watchlist}
 
     out: dict[str, CmcSignal] = {}
     for sym in watchlist:
-        liq = liquidity.get(sym)
+        liq, mom = quotes.get(sym, (None, 0.0))
         funding = None                       # per-pair funding deferred (see module docstring)
         ok, reason = _structural_ok(liq, funding, intended_direction.get(sym, "long"))
         if not ok:
             log.info("CMC veto %s: %s", sym, reason)
-        out[sym] = CmcSignal(sym, liq, funding, ok)
+        out[sym] = CmcSignal(sym, liq, funding, ok, mom)
     return out

@@ -13,14 +13,15 @@ Weights live in config/settings.py.
 # term must be interpreted per setup, not added blindly. See experiment/FINDINGS.md.
 #
 # Per-setup treatment of the social-velocity axis:
-#   accumulation  -> social QUIETNESS is a BONUS. Score driven mainly by on-chain
-#                    flow magnitude; HIGH social REDUCES the score (less edge left).
+#   accumulation  -> social QUIETNESS is a BONUS. Score driven mainly by CMC momentum
+#                    magnitude; HIGH social REDUCES the score (less edge left).
 #   confirmation  -> social velocity + Twitter/Reddit agreement contribute POSITIVELY
 #                    (momentum), but capped below a clean accumulation entry.
-#   distribution  -> high social + negative on-chain flow drive the EXIT score up.
+#   distribution  -> high social + negative CMC momentum drive the EXIT score up.
 #   no_trade      -> score ~0.
-# On-chain flow magnitude (WEIGHT_ONCHAIN_FLOW) and the CMC structural OK term
-# (WEIGHT_CMC_STRUCTURAL, veto handled separately) keep their meaning across setups.
+# CMC momentum magnitude (WEIGHT_CMC_MOMENTUM, primary) + optional on-chain bonus
+# (WEIGHT_ONCHAIN_BONUS) + the CMC structural OK term (WEIGHT_CMC_STRUCTURAL, veto
+# handled separately) keep their meaning across setups.
 # ============================================================================
 
 Output: {symbol, direction: long|exit|none, score, confidence, rationale_text}.
@@ -58,8 +59,13 @@ def _clamp01(x: float) -> float:
 
 
 def _flow_magnitude(flow: float) -> float:
-    """Normalize |flow| to 0..1. STRONG_FLOW maps to ~0.5; 2x to 1.0."""
+    """Normalize |on-chain flow| to 0..1 (optional bonus axis). STRONG maps ~0.5; 2x to 1.0."""
     return _clamp01(abs(flow) / (settings.ONCHAIN_STRONG_FLOW_USD * 2))
+
+
+def _momentum_magnitude(pct: float) -> float:
+    """Normalize |CMC 1h momentum %| to 0..1 (primary axis). STRONG maps ~0.5; 2x to 1.0."""
+    return _clamp01(abs(pct) / (settings.CMC_MOMENTUM_STRONG_PCT * 2))
 
 
 def score(div: DivergenceSignal) -> Conviction:
@@ -72,7 +78,9 @@ def score(div: DivergenceSignal) -> Conviction:
         return Conviction(div.symbol, "none", 0.0, 0.0,
                           f"{div.symbol}: vetoed by CMC structural layer (thin liquidity / funding)")
 
-    f = _flow_magnitude(div.onchain_flow_usd)
+    m = _momentum_magnitude(div.cmc_momentum_pct)      # PRIMARY (CMC momentum)
+    b = _flow_magnitude(div.onchain_flow_usd)          # optional on-chain bonus (0 unless RPC feeds it)
+    primary = settings.WEIGHT_CMC_MOMENTUM * m + settings.WEIGHT_ONCHAIN_BONUS * b
     vel = div.social_velocity
     agree = 1.0 if div.reddit_agrees else 0.0
     struct = settings.WEIGHT_CMC_STRUCTURAL  # structural_ok already true here
@@ -81,14 +89,12 @@ def score(div: DivergenceSignal) -> Conviction:
         # quiet social is the edge: bonus is near-full while retail is asleep, and only
         # fades as velocity climbs toward "hot". Spends the full social budget.
         quiet = _clamp01((settings.SOCIAL_VEL_HOT - vel) / settings.SOCIAL_VEL_HOT)
-        raw = (settings.WEIGHT_ONCHAIN_FLOW * f
-               + ACC_SOCIAL_BUDGET * quiet
-               + struct)
+        raw = primary + ACC_SOCIAL_BUDGET * quiet + struct
         direction = "long"
 
     elif div.setup is Setup.CONFIRMATION:
         v = _clamp01(vel / (settings.SOCIAL_VEL_HOT * 2))
-        raw = (settings.WEIGHT_ONCHAIN_FLOW * f
+        raw = (primary
                + settings.WEIGHT_SOCIAL_VELOCITY * v
                + settings.WEIGHT_SOCIAL_AGREEMENT * agree
                + struct) * CONFIRMATION_CAP        # held below a clean accumulation
@@ -96,32 +102,32 @@ def score(div: DivergenceSignal) -> Conviction:
 
     elif div.setup is Setup.DISTRIBUTION:
         v = _clamp01(vel / (settings.SOCIAL_VEL_HOT * 2))
-        raw = (settings.WEIGHT_ONCHAIN_FLOW * f
+        raw = (primary
                + settings.WEIGHT_SOCIAL_VELOCITY * v
                + settings.WEIGHT_SOCIAL_AGREEMENT * agree
                + struct)
         direction = "exit"
 
     else:  # NO_TRADE
-        return Conviction(div.symbol, "none", round(_flow_magnitude(div.onchain_flow_usd) * 20, 1),
+        return Conviction(div.symbol, "none", round(_momentum_magnitude(div.cmc_momentum_pct) * 20, 1),
                           0.0, f"{div.symbol}: no actionable divergence")
 
     sc = round(_clamp01(raw) * 100, 1)
-    confidence = round(f, 2)
+    confidence = round(m, 2)
     rationale = make_rationale(div, sc, direction)
     return Conviction(div.symbol, direction, sc, confidence, rationale)
 
 
 def _template_rationale(div: DivergenceSignal, sc: float, direction: str) -> str:
-    flow, vel = div.onchain_flow_usd, div.social_velocity
+    mom, vel = div.cmc_momentum_pct, div.social_velocity
     if div.setup is Setup.ACCUMULATION:
-        return (f"{div.symbol}: smart money {flow:+,.0f} while social quiet (vel {vel:.1f}) "
+        return (f"{div.symbol}: CMC momentum {mom:+.1f}% while social quiet (vel {vel:.1f}) "
                 f"— early accumulation, {direction} @ {sc}")
     if div.setup is Setup.CONFIRMATION:
-        return (f"{div.symbol}: smart money {flow:+,.0f} with social rising (vel {vel:.1f}, "
+        return (f"{div.symbol}: CMC momentum {mom:+.1f}% with social rising (vel {vel:.1f}, "
                 f"reddit {'agrees' if div.reddit_agrees else 'quiet'}) — momentum, {direction} @ {sc}")
     if div.setup is Setup.DISTRIBUTION:
-        return (f"{div.symbol}: smart money {flow:+,.0f} into social euphoria (vel {vel:.1f}) "
+        return (f"{div.symbol}: CMC momentum {mom:+.1f}% into social euphoria (vel {vel:.1f}) "
                 f"— distribution, {direction} @ {sc}")
     return f"{div.symbol}: no actionable divergence"
 
@@ -143,9 +149,9 @@ def make_rationale(div: DivergenceSignal, sc: float, direction: str) -> str:
         from google.genai import types
         client = genai.Client(vertexai=True, project=project,
                               location=os.getenv("VERTEX_REGION", "us-central1"))
-        facts = (f"token={div.symbol} setup={div.setup.value} net_flow={div.onchain_flow_usd:+.0f} "
-                 f"social_velocity={div.social_velocity:.2f} reddit_agrees={div.reddit_agrees} "
-                 f"direction={direction} score={sc}")
+        facts = (f"token={div.symbol} setup={div.setup.value} cmc_momentum_pct={div.cmc_momentum_pct:+.2f} "
+                 f"onchain_flow={div.onchain_flow_usd:+.0f} social_velocity={div.social_velocity:.2f} "
+                 f"reddit_agrees={div.reddit_agrees} direction={direction} score={sc}")
         resp = client.models.generate_content(
             model=_GEMINI_MODEL,
             contents="Write ONE terse trader sentence explaining this signal. Facts: " + facts,
