@@ -135,6 +135,11 @@ class RiskManager:
     def trades_total(self) -> int:
         return self._trades_total
 
+    @property
+    def trades_today(self) -> int:
+        self._roll_day()
+        return self._trades_today
+
     # ------------------------------------------------------------------ #
     def _roll_day(self) -> None:
         """Reset the daily trade counter when the UTC date changes."""
