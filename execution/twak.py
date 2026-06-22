@@ -80,7 +80,12 @@ def _run(args: list[str]) -> str:
     # CLI expects TWAK_WALLET_PASSWORD; bridge from TWAK_PASSWORD if only that is set.
     if not env.get("TWAK_WALLET_PASSWORD") and env.get("TWAK_PASSWORD"):
         env["TWAK_WALLET_PASSWORD"] = env["TWAK_PASSWORD"]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+    except subprocess.TimeoutExpired as e:
+        # A swap may have broadcast before the timeout — surface the unknown state, don't hide it.
+        raise RuntimeError(f"twak '{args[0]}' timed out after 120s; on-chain state UNKNOWN "
+                           "(tx may have broadcast)") from e
     if proc.returncode != 0:
         raise RuntimeError(f"twak failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout.strip()
