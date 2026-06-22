@@ -74,6 +74,15 @@ def test_balance_empty_in_dry_run():
     assert twak.get_balance() == {}
 
 
+def test_balance_parses_flat_list(monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    twak._reset_dry_run()
+    flat = '[{"symbol":"BNB","usdValue":3.01},{"symbol":"USDT","usdValue":17.99}]'
+    monkeypatch.setattr(twak, "_run", lambda args: flat)
+    bal = twak.get_balance()
+    assert bal == {"BNB": 3.01, "USDT": 17.99}
+
+
 def test_x402_dry_run_true():
     assert twak.pay_x402("https://example/x402") is True
 

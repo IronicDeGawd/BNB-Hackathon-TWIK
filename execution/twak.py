@@ -133,25 +133,25 @@ def register() -> str:
 
 
 def get_balance() -> dict[str, float]:
-    """Current in-scope holdings {symbol: usd_value}. Empty in dry-run.
+    """Current holdings {symbol: usd_value}. Empty in dry-run.
 
-    Parses `twak wallet portfolio --chains bsc --json`. Schema is defensive — TWAK's
-    portfolio JSON nests token holdings; adjust the keys here if the live shape differs.
+    `twak wallet portfolio --chains bsc --json` returns a FLAT LIST of holdings,
+    e.g. [{"symbol":"BNB","usdValue":3.01}, {"symbol":"USDT","usdValue":17.99}].
+    Also tolerates legacy dict shapes ({tokens:[...]} / {bsc:{tokens:[...]}}).
     """
     if _dry_run():
         return {}
     try:
         data = json.loads(_run(["wallet", "portfolio", "--chains", "bsc", "--json"]))
+        if isinstance(data, list):                       # actual twak shape: flat list
+            buckets = data
+        elif isinstance(data, dict) and "tokens" in data:
+            buckets = data["tokens"]
+        elif isinstance(data, dict):                     # {bsc:{tokens:[...]}}
+            buckets = [t for v in data.values() if isinstance(v, dict) for t in v.get("tokens", [])]
+        else:
+            buckets = []
         out: dict[str, float] = {}
-        # tolerate a few likely shapes: {tokens:[{symbol,usdValue}]} or {bsc:{tokens:[...]}}
-        buckets = []
-        if isinstance(data, dict):
-            if "tokens" in data:
-                buckets = data["tokens"]
-            else:
-                for v in data.values():
-                    if isinstance(v, dict) and "tokens" in v:
-                        buckets += v["tokens"]
         for tk in buckets:
             sym = tk.get("symbol") or tk.get("ticker")
             usd = tk.get("usdValue") or tk.get("valueUsd") or tk.get("usd")
