@@ -154,6 +154,8 @@ def _maybe_daily_floor(rm, state, actions, below_threshold, portfolio_usd, mem) 
     if already or state.kill_switch_tripped or not rm.needs_daily_floor_trade() or not below_threshold:
         return
     best = max(below_threshold, key=lambda c: c.score)
+    if best.score < settings.DAILY_FLOOR_MIN_SCORE:   # don't force a junk trade just to qualify
+        return
     act = _try_enter(rm, best.symbol, best.score, "daily-floor nudge: " + best.rationale_text,
                      portfolio_usd, mem)
     actions.append(act)

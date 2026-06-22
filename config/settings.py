@@ -21,6 +21,7 @@ DUST_FLOOR_USD = 1.0             # never let portfolio sit at or below this (tho
 # --- Qualification rules ---
 DAILY_TRADE_FLOOR = 1             # must trade at least once/day
 DAILY_FLOOR_HOUR_UTC = 20         # only force the daily-floor trade past this UTC hour (last ~4h)
+DAILY_FLOOR_MIN_SCORE = 40        # never force a daily-floor trade below this conviction (skip junk)
 WEEKLY_TRADE_FLOOR = 7           # must trade at least 7x over the week
 MAX_TRADES_PER_DAY = 6           # hard cap on new entries/day (anti-churn; fee drag bites at small size)
 DISQUALIFY_DRAWDOWN_PCT = 30      # hard gate from hackathon rules (do not breach)

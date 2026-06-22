@@ -98,6 +98,25 @@ def test_distribution_exit_sells_held_position():
     mem.close()
 
 
+def test_daily_floor_skips_subscore_junk():
+    from agent import _maybe_daily_floor
+    from brain.conviction import Conviction
+    from risk.guardrails import RiskState
+    late = lambda: 1_700_000_000.0                          # 22:13 UTC — floor window active
+    rm = RiskManager(now_fn=late)
+    rm.update_drawdown(100.0)
+    state = RiskState(100.0, 100.0, 0.0, False)
+
+    actions = []
+    junk = [Conviction("CAKE", "long", 20.0, 0.2, "weak")]  # below DAILY_FLOOR_MIN_SCORE
+    _maybe_daily_floor(rm, state, actions, junk, 100.0, None)
+    assert actions == []                                    # not forced
+
+    ok = [Conviction("CAKE", "long", 50.0, 0.5, "ok")]      # >= min, < threshold
+    _maybe_daily_floor(rm, state, actions, ok, 100.0, None)
+    assert len(actions) == 1 and actions[0].executed         # floor fires
+
+
 def test_buy_is_recorded_in_memory():
     rm = RiskManager()
     mem = Memory(db_path=":memory:")
