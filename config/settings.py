@@ -54,5 +54,5 @@ SOCIAL_VEL_FLAT = 1.2            # velocity at/below this = retail asleep (good 
 REDDIT_HOT_ACTIVITY = 0.5       # normalized reddit activity at/above this = social agreement
 REDDIT_ACTIVITY_NORM_POSTS = 10  # post count that maps to activity = 1.0
 
-# --- Runtime flags (overridable via env) ---
-DRY_RUN_DEFAULT = True            # simulate, do not broadcast, unless env says otherwise
+# Runtime DRY_RUN is read from the environment at execution time (execution/twak.py),
+# defaulting to simulate. There is no module-level flag — env is the single source.

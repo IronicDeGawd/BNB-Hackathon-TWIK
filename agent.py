@@ -14,8 +14,11 @@ the demo material. DRY_RUN (default true) means nothing is broadcast.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
 
 from config import settings
 from config.watchlist import WATCHLIST
@@ -162,9 +165,10 @@ def _maybe_daily_floor(rm, state, actions, below_threshold, portfolio_usd, mem) 
 
 
 def main() -> None:
-    logging.basicConfig(level=getattr(logging, settings.DRY_RUN_DEFAULT and "INFO" or "INFO"))
-    rm = RiskManager()
+    load_dotenv(override=False)                  # load .env (shell/systemd env still wins; can't flip mid-run)
+    logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
     mem = Memory()
+    rm = RiskManager(mem=mem)                     # restores drawdown peak + kill switch from prior runs
     log.info("Conviction Agent up | cycle=%dm | watchlist=%d | dry_run=%s",
              settings.CYCLE_MINUTES, len(WATCHLIST), twak._dry_run())
     while True:
