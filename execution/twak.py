@@ -28,7 +28,7 @@ import re
 import subprocess
 
 from config.settings import SLIPPAGE_BPS
-from config.tokens import is_eligible
+from config.tokens import address_of, is_eligible
 
 log = logging.getLogger("conviction.twak")
 
@@ -163,18 +163,19 @@ def get_balance() -> dict[str, float]:
         return {}
 
 
-def execute_trade(symbol: str, side: str, amount: float) -> str:
+def execute_trade(symbol: str, side: str, amount_usd: float) -> str:
     """Swap via TWAK on BSC, sign LOCALLY, broadcast. Respects SLIPPAGE_BPS.
 
-    side="buy"  -> spend `amount` of QUOTE_TOKEN (USD≈USDT) to acquire `symbol`.
-    side="sell" -> sell `amount` units of `symbol` back to QUOTE_TOKEN.
+    `amount_usd` is a USD figure on BOTH sides (twak `--usd`):
+    side="buy"  -> spend `amount_usd` of QUOTE_TOKEN to acquire `symbol`.
+    side="sell" -> sell `amount_usd` worth of `symbol` back to QUOTE_TOKEN.
     Returns tx hash (simulated under DRY_RUN — never broadcasts in dry-run).
     """
     if side not in ("buy", "sell"):
         raise ValueError(f"bad side: {side}")
     if _dry_run():
-        h = _sim_hash("trade", symbol, side, _fmt(amount))
-        log.info("[DRY_RUN] %s %s %s -> %s", side, symbol, _fmt(amount), h)
+        h = _sim_hash("trade", symbol, side, _fmt(amount_usd))
+        log.info("[DRY_RUN] %s %s $%s -> %s", side, symbol, _fmt(amount_usd), h)
         return h
 
     if not is_eligible(symbol):                  # defense in depth — never broadcast off-allowlist
@@ -182,8 +183,10 @@ def execute_trade(symbol: str, side: str, amount: float) -> str:
     _require_live_config()
     slippage_pct = SLIPPAGE_BPS / 100  # bps -> percent (100 bps = 1.0)
     frm, to = (QUOTE_TOKEN, symbol) if side == "buy" else (symbol, QUOTE_TOKEN)
-    # Verified syntax: twak swap <amount> <from> <to> --chain bsc --slippage <pct> --json
-    out = _run(["swap", _fmt(amount), frm, to,
+    # twak resolves swaps by CONTRACT ADDRESS (bare symbols 404); size in USD on both sides.
+    frm_arg = address_of(frm) or frm
+    to_arg = address_of(to) or to
+    out = _run(["swap", frm_arg, to_arg, "--usd", _fmt(amount_usd),
                 "--chain", "bsc", "--slippage", f"{slippage_pct}", "--json"])
     try:
         d = json.loads(out)

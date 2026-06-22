@@ -54,8 +54,16 @@ def test_live_accepts_valid_txhash(monkeypatch):
     monkeypatch.setenv("TWAK_WALLET_ADDRESS", "0xabc")
     twak._reset_dry_run()
     h = "0x" + "a" * 64
-    monkeypatch.setattr(twak, "_run", lambda args: '{"txHash": "%s"}' % h)
+    captured = {}
+    def fake_run(args):
+        captured["args"] = args
+        return '{"txHash": "%s"}' % h
+    monkeypatch.setattr(twak, "_run", fake_run)
     assert twak.execute_trade("CAKE", "buy", 10) == h
+    # twak resolves by contract address and sizes in USD
+    assert captured["args"][1].startswith("0x")          # from = USDT address
+    assert captured["args"][2].startswith("0x")          # to = CAKE address
+    assert "--usd" in captured["args"]
 
 
 def test_register_dry_run_simulated():
