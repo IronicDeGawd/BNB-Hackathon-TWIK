@@ -61,3 +61,19 @@ def test_holdings_lists_open_positions(mem):
 def test_bad_side_rejected(mem):
     with pytest.raises(ValueError):
         mem.log_trade("CAKE", "hodl", 1.0, "0x", 0.0)
+
+
+def test_recent_trades_newest_first(mem):
+    now = 1_700_000_000.0
+    mem.log_trade("CAKE", "buy", 20.0, "0xa", 80.0, ts=now - 100)
+    mem.log_trade("CAKE", "sell", 5.0, "0xb", 0.0, ts=now - 10)
+    out = mem.recent_trades("CAKE", limit=5)
+    assert [t["side"] for t in out] == ["sell", "buy"]      # newest first
+    assert out[0]["size_usd"] == 5.0
+
+
+def test_recent_signals_newest_first(mem):
+    now = 1_700_000_000.0
+    mem.log_signal("CAKE", "twitter", "mentions", 10, ts=now - 100)
+    mem.log_signal("CAKE", "twitter", "mentions", 30, ts=now - 10)
+    assert mem.recent_signals("CAKE", "twitter", "mentions", limit=5) == [30.0, 10.0]

@@ -94,6 +94,20 @@ class Memory:
             "FROM trades GROUP BY symbol").fetchall()
         return {s: float(v) for s, v in rows if v and v > 0}
 
+    def recent_trades(self, symbol: str, limit: int = 5) -> list[dict]:
+        """Most recent trades for a token (newest first) — context for the LLM confirm layer."""
+        rows = self.conn.execute(
+            "SELECT ts, side, size_usd, conviction FROM trades WHERE symbol=? "
+            "ORDER BY ts DESC LIMIT ?", (symbol, limit)).fetchall()
+        return [{"ts": r[0], "side": r[1], "size_usd": r[2], "conviction": r[3]} for r in rows]
+
+    def recent_signals(self, symbol: str, source: str, metric: str, limit: int = 5) -> list[float]:
+        """Most recent raw signal values for a token/source/metric (newest first)."""
+        rows = self.conn.execute(
+            "SELECT value FROM signals WHERE symbol=? AND source=? AND metric=? "
+            "ORDER BY ts DESC LIMIT ?", (symbol, source, metric, limit)).fetchall()
+        return [float(r[0]) for r in rows]
+
     # -- durable scalar state (survives restarts) ------------------------- #
     def get_state(self, key: str, default: float = 0.0) -> float:
         """Read a persisted scalar (e.g. drawdown peak, kill-switch flag)."""
