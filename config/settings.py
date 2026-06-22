@@ -49,7 +49,7 @@ CMC_MIN_LIQUIDITY_USD = 250_000.0   # 24h volume floor; below this = thin -> vet
 CMC_MAX_FUNDING_ABS = 0.05         # |funding rate| above this, against intended direction -> veto
 
 # --- Divergence thresholds (brain; tune via backtest.py) ---
-CMC_MOMENTUM_STRONG_PCT = 1.0     # |1h % price change| at/above = strong directional (primary axis)
+CMC_MOMENTUM_STRONG_PCT = 0.4     # |1h % price change| at/above = strong directional (primary axis)
 ONCHAIN_STRONG_FLOW_USD = 5000    # |net smart-money flow| considered strong (bonus axis, if RPC feeds it)
 SOCIAL_VEL_HOT = 2.0              # mention velocity at/above this = retail euphoric
 SOCIAL_VEL_FLAT = 1.2            # velocity at/below this = retail asleep (good for accumulation)

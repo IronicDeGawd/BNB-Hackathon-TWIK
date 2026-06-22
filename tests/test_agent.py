@@ -99,23 +99,31 @@ def test_distribution_exit_sells_held_position():
     mem.close()
 
 
-def test_daily_floor_skips_subscore_junk():
+def test_daily_floor_prefers_quality_then_falls_back():
     from agent import _maybe_daily_floor
     from brain.conviction import Conviction
     from risk.guardrails import RiskState
     late = lambda: 1_700_000_000.0                          # 22:13 UTC — floor window active
-    rm = RiskManager(now_fn=late)
-    rm.update_drawdown(100.0)
     state = RiskState(100.0, 100.0, 0.0, False)
 
-    actions = []
-    junk = [Conviction("CAKE", "long", 20.0, 0.2, "weak")]  # below DAILY_FLOOR_MIN_SCORE
-    _maybe_daily_floor(rm, state, actions, junk, 100.0, None)
-    assert actions == []                                    # not forced
+    def fresh():
+        rm = RiskManager(now_fn=late); rm.update_drawdown(100.0); return rm
 
-    ok = [Conviction("CAKE", "long", 50.0, 0.5, "ok")]      # >= min, < threshold
-    _maybe_daily_floor(rm, state, actions, ok, 100.0, None)
-    assert len(actions) == 1 and actions[0].executed         # floor fires
+    # sub-MIN long and NO fallback pool -> no forced trade
+    actions = []
+    _maybe_daily_floor(fresh(), state, actions, [Conviction("CAKE", "long", 20.0, 0.2, "weak")], [], 100.0, None)
+    assert actions == []
+
+    # sub-MIN long but a positive-momentum fallback exists -> qualifying trade fires
+    actions = []
+    pool = [(0.6, Conviction("CAKE", "long", 12.0, 0.1, "momentum"))]
+    _maybe_daily_floor(fresh(), state, actions, [], pool, 100.0, None)
+    assert any(a.executed for a in actions)
+
+    # a quality sub-threshold long is preferred (primary path)
+    actions = []
+    _maybe_daily_floor(fresh(), state, actions, [Conviction("CAKE", "long", 50.0, 0.5, "ok")], [], 100.0, None)
+    assert any(a.executed for a in actions)
 
 
 def test_llm_veto_blocks_entry(monkeypatch):

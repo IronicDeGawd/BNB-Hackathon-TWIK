@@ -25,7 +25,7 @@ from config.watchlist import WATCHLIST
 from config.tokens import is_eligible
 from signals import onchain, twitter, reddit, cmc
 from brain.divergence import detect
-from brain.conviction import score
+from brain.conviction import score, Conviction
 from brain import llm_confirm
 from risk.guardrails import RiskManager
 from brain.memory import Memory
@@ -97,12 +97,19 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
     if mem is not None:
         mem.log_portfolio(portfolio_usd, state.drawdown_pct)
     actions: list[Action] = []
-    below_threshold: list = []                   # daily-floor fallback candidates
+    below_threshold: list = []                   # sub-threshold longs (preferred floor candidates)
+    floor_pool: list = []                        # (momentum, Conviction) — day-end qualification fallback
 
     for sym in watchlist:
         div = detect(sym, twitter_map.get(sym), reddit_map.get(sym),
                      onchain_map.get(sym), cmc_map.get(sym))
         conv = score(div)
+
+        # any positive-momentum token is a last-resort floor candidate (keeps >=1 trade/day)
+        if div.cmc_momentum_pct > 0 and conv.direction != "exit":
+            floor_pool.append((div.cmc_momentum_pct,
+                               Conviction(sym, "long", max(conv.score, 1.0),
+                                          conv.confidence, conv.rationale_text)))
 
         if conv.direction == "exit":
             actions.append(_try_exit(rm, sym, conv.score, mem))
@@ -125,7 +132,7 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
         else:
             below_threshold.append(conv)
 
-    _maybe_daily_floor(rm, state, actions, below_threshold, portfolio_usd, mem)
+    _maybe_daily_floor(rm, state, actions, below_threshold, floor_pool, portfolio_usd, mem)
     return actions
 
 
@@ -166,18 +173,22 @@ def _try_enter(rm: RiskManager, sym: str, sc: float, rationale: str,
     return Action(sym, "long", sc, size, tx, rationale, True)
 
 
-def _maybe_daily_floor(rm, state, actions, below_threshold, portfolio_usd, mem) -> None:
-    """If nothing traded today and the day is closing, take the best sub-threshold long
-    so the >=1 trade/day rule holds — only if the risk gate otherwise passes."""
+def _maybe_daily_floor(rm, state, actions, below_threshold, floor_pool, portfolio_usd, mem) -> None:
+    """Near day-end, guarantee the >=1 trade/day rule. Prefer a sub-threshold long that
+    clears DAILY_FLOOR_MIN_SCORE; if there are none, fall back to the best positive-momentum
+    eligible token (a small qualifying trade). Tries candidates until one passes the risk gate."""
     already = any(a.executed and a.direction == "long" for a in actions)
-    if already or state.kill_switch_tripped or not rm.needs_daily_floor_trade() or not below_threshold:
+    if already or state.kill_switch_tripped or not rm.needs_daily_floor_trade():
         return
-    best = max(below_threshold, key=lambda c: c.score)
-    if best.score < settings.DAILY_FLOOR_MIN_SCORE:   # don't force a junk trade just to qualify
-        return
-    act = _try_enter(rm, best.symbol, best.score, "daily-floor nudge: " + best.rationale_text,
-                     portfolio_usd, mem)
-    actions.append(act)
+    primary = sorted([c for c in below_threshold if c.score >= settings.DAILY_FLOOR_MIN_SCORE],
+                     key=lambda c: c.score, reverse=True)
+    fallback = [c for _, c in sorted(floor_pool, key=lambda x: x[0], reverse=True)]
+    for conv in primary + fallback:               # first that clears the risk gate wins
+        act = _try_enter(rm, conv.symbol, conv.score, "daily-floor: " + conv.rationale_text,
+                         portfolio_usd, mem)
+        actions.append(act)
+        if act.executed:
+            return
 
 
 def main() -> None:
