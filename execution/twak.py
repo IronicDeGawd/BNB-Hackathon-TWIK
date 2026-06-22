@@ -163,6 +163,25 @@ def get_balance() -> dict[str, float]:
         return {}
 
 
+def get_token_value(symbol: str) -> float:
+    """Mark-to-market USD value of the wallet's current holding of `symbol`.
+
+    `twak balance --token <contract>` returns live totalUsd. 0 in dry-run or on any error.
+    """
+    if _dry_run():
+        return 0.0
+    addr = address_of(symbol)
+    wallet = os.getenv("TWAK_WALLET_ADDRESS")
+    if not addr or not wallet:
+        return 0.0
+    try:
+        d = json.loads(_run(["balance", "--address", wallet, "--token", addr, "--chain", "bsc", "--json"]))
+        return float(d.get("totalUsd") or 0)
+    except Exception as e:
+        log.warning("token value read failed for %s: %s", symbol, e)
+        return 0.0
+
+
 def execute_trade(symbol: str, side: str, amount_usd: float) -> str:
     """Swap via TWAK on BSC, sign LOCALLY, broadcast. Respects SLIPPAGE_BPS.
 

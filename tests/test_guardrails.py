@@ -67,6 +67,16 @@ def test_allowlist_blocks_offlist_token():
     assert rm.allows(ELIGIBLE_SYM, 10.0)[0] is True
 
 
+def test_cumulative_position_cap():
+    rm = _rm()
+    rm.update_drawdown(1000.0)
+    cap = 1000 * settings.MAX_POSITION_PCT / 100          # max exposure per token
+    # already near the cap -> a further add is rejected
+    assert rm.allows(ELIGIBLE_SYM, cap * 0.5, portfolio_usd=1000, position_usd=cap * 0.8)[0] is False
+    # room left -> allowed
+    assert rm.allows(ELIGIBLE_SYM, cap * 0.2, portfolio_usd=1000, position_usd=cap * 0.2)[0] is True
+
+
 def test_zero_size_trade_rejected():
     rm = _rm()
     rm.update_drawdown(1000.0)

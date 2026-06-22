@@ -76,7 +76,12 @@ def portfolio_value(mem: Memory | None = None) -> float:
     """
     bal = twak.get_balance()
     liquid = sum(bal.values()) if bal else 0.0
-    held = sum(mem.holdings().values()) if mem is not None else 0.0   # alt-tokens twak omits
+    held = 0.0
+    if mem is not None:
+        if twak._dry_run():
+            held = sum(mem.holdings().values())          # paper: cost basis
+        else:
+            held = sum(twak.get_token_value(s) for s in mem.holdings())  # live: mark-to-market
     total = liquid + held
     if twak._dry_run():
         return total if total > 0 else settings.PAPER_PORTFOLIO_USD
@@ -146,7 +151,8 @@ def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Actio
 def _try_enter(rm: RiskManager, sym: str, sc: float, rationale: str,
                portfolio_usd: float, mem: Memory | None) -> Action:
     size = rm.position_size(sc, portfolio_usd)
-    ok, reason = rm.allows(sym, size, portfolio_usd)
+    pos = twak.get_token_value(sym)               # current exposure -> cumulative position cap
+    ok, reason = rm.allows(sym, size, portfolio_usd, position_usd=pos)
     if not ok:
         return Action(sym, "long", sc, size, "", reason, False)
     try:

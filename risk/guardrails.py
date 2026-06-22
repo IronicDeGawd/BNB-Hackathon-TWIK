@@ -68,8 +68,12 @@ class RiskManager:
 
     # ------------------------------------------------------------------ #
     def allows(self, symbol: str, size_usd: float,
-               portfolio_usd: float | None = None) -> tuple[bool, str]:
-        """Master gate for a NEW entry. Returns (allowed, reason)."""
+               portfolio_usd: float | None = None, position_usd: float = 0.0) -> tuple[bool, str]:
+        """Master gate for a NEW entry. Returns (allowed, reason).
+
+        position_usd = current mark-to-market exposure to this token; the size cap is
+        applied to position_usd + size_usd so cumulative exposure can't exceed the cap.
+        """
         if self.kill_switch:
             return False, "kill switch tripped (drawdown breached)"
         if not is_eligible(symbol):
@@ -87,9 +91,9 @@ class RiskManager:
             return False, f"portfolio at dust (<= ${settings.DUST_FLOOR_USD})"
 
         max_size = portfolio * settings.MAX_POSITION_PCT / 100
-        if size_usd > max_size + 1e-9:
-            return False, (f"size ${size_usd:,.2f} exceeds {settings.MAX_POSITION_PCT}% "
-                           f"cap (${max_size:,.2f})")
+        if position_usd + size_usd > max_size + 1e-9:
+            return False, (f"position ${position_usd:,.2f}+${size_usd:,.2f} exceeds "
+                           f"{settings.MAX_POSITION_PCT}% cap (${max_size:,.2f})")
 
         last = self._last_trade_ts.get(symbol)
         if last is not None:
