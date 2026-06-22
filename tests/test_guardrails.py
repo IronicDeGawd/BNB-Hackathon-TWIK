@@ -32,6 +32,15 @@ def test_drawdown_trips_kill_switch_at_threshold():
     assert rm.allows(ELIGIBLE_SYM, 1.0, portfolio_usd=1000)[0] is False
 
 
+def test_trades_today_from_memory_survives_restart():
+    mem = Memory(db_path=":memory:")
+    mem.log_trade("CAKE", "buy", 5.0, "0xa", 60.0)
+    mem.log_trade("AVAX", "buy", 5.0, "0xb", 60.0)
+    assert RiskManager(mem=mem).trades_today == 2          # derived from DB
+    assert RiskManager(mem=mem).trades_today == 2          # a "restart" still sees 2
+    mem.close()
+
+
 def test_kill_switch_and_peak_persist_across_restart():
     mem = Memory(db_path=":memory:")
     rm = RiskManager(mem=mem)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import time
+from datetime import datetime, timezone
 from typing import Callable
 
 DB_PATH = "data/conviction.sqlite"
@@ -97,6 +98,12 @@ class Memory:
     def trade_count(self) -> int:
         """Total trades ever executed (persists across restarts — for PnL/activity reporting)."""
         return int(self.conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0])
+
+    def trades_today(self, now: float | None = None) -> int:
+        """Trades since 00:00 UTC today — restart-proof daily count (DB-backed)."""
+        n = datetime.fromtimestamp(now if now is not None else self.now_fn(), tz=timezone.utc)
+        midnight = n.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        return int(self.conn.execute("SELECT COUNT(*) FROM trades WHERE ts >= ?", (midnight,)).fetchone()[0])
 
     def recent_trades(self, symbol: str, limit: int = 5) -> list[dict]:
         """Most recent trades for a token (newest first) — context for the LLM confirm layer."""

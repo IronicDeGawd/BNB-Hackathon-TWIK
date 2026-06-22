@@ -81,10 +81,10 @@ class RiskManager:
         if size_usd <= 0:
             return False, "trade size is zero"
 
-        self._roll_day()
-        if self._trades_today >= settings.MAX_TRADES_PER_DAY:
+        today = self._today_count()
+        if today >= settings.MAX_TRADES_PER_DAY:
             return False, (f"daily trade cap reached "
-                           f"({self._trades_today}/{settings.MAX_TRADES_PER_DAY})")
+                           f"({today}/{settings.MAX_TRADES_PER_DAY})")
 
         portfolio = portfolio_usd if portfolio_usd is not None else self.current_usd
         if portfolio <= settings.DUST_FLOOR_USD:
@@ -124,8 +124,7 @@ class RiskManager:
         Gated to the final hours (DAILY_FLOOR_HOUR_UTC) so the agent waits for a quality
         setup most of the day and only forces a sub-threshold trade near day-end.
         """
-        self._roll_day()
-        if self._trades_today >= settings.DAILY_TRADE_FLOOR:
+        if self._today_count() >= settings.DAILY_TRADE_FLOOR:
             return False
         hour = datetime.fromtimestamp(self.now_fn(), tz=timezone.utc).hour
         return hour >= settings.DAILY_FLOOR_HOUR_UTC
@@ -141,6 +140,16 @@ class RiskManager:
 
     @property
     def trades_today(self) -> int:
+        return self._today_count()
+
+    def _today_count(self) -> int:
+        """Daily trade count — from persisted Memory when available (restart-proof),
+        else the in-memory counter (rolled on UTC date change)."""
+        if self.mem is not None:
+            try:
+                return int(self.mem.trades_today(self.now_fn()))
+            except Exception:
+                pass
         self._roll_day()
         return self._trades_today
 
