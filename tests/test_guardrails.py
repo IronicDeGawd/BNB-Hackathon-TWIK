@@ -2,6 +2,7 @@
 
 from config import settings
 from risk.guardrails import RiskManager
+from brain.memory import Memory
 
 ELIGIBLE_SYM = "CAKE"      # on the allowlist
 OFFLIST_SYM = "NOTATOKEN"
@@ -29,6 +30,19 @@ def test_drawdown_trips_kill_switch_at_threshold():
     st = rm.update_drawdown(100.0 * (1 - settings.MAX_DRAWDOWN_PCT / 100))  # exactly at cap
     assert st.kill_switch_tripped
     assert rm.allows(ELIGIBLE_SYM, 1.0, portfolio_usd=1000)[0] is False
+
+
+def test_kill_switch_and_peak_persist_across_restart():
+    mem = Memory(db_path=":memory:")
+    rm = RiskManager(mem=mem)
+    rm.update_drawdown(100.0)                       # peak = 100
+    rm.update_drawdown(50.0)                         # 50% dd -> trips kill switch
+    assert rm.kill_switch is True
+    # a fresh RiskManager on the same Memory restores the latched state
+    rm2 = RiskManager(mem=mem)
+    assert rm2.kill_switch is True
+    assert rm2.peak_usd == 100.0
+    mem.close()
 
 
 def test_drawdown_below_threshold_does_not_trip():

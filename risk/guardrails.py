@@ -38,6 +38,7 @@ class RiskState:
 @dataclass
 class RiskManager:
     now_fn: Callable[[], float] = time.time      # injectable clock (epoch seconds)
+    mem: object = None                           # optional brain.memory.Memory for cross-restart persistence
     peak_usd: float = 0.0
     current_usd: float = 0.0
     kill_switch: bool = False
@@ -45,6 +46,12 @@ class RiskManager:
     _trades_today: int = 0
     _trades_total: int = 0
     _today: str = ""
+
+    def __post_init__(self) -> None:
+        # Restore drawdown peak + kill switch so a restart mid-drawdown does not resume trading.
+        if self.mem is not None:
+            self.peak_usd = self.mem.get_state("peak_usd", self.peak_usd)
+            self.kill_switch = bool(self.mem.get_state("kill_switch", 0.0))
 
     # ------------------------------------------------------------------ #
     def update_drawdown(self, current_usd: float) -> RiskState:
@@ -54,6 +61,9 @@ class RiskManager:
         dd = 0.0 if self.peak_usd <= 0 else (self.peak_usd - current_usd) / self.peak_usd * 100
         if dd >= settings.MAX_DRAWDOWN_PCT:
             self.kill_switch = True               # latch — stays tripped once breached
+        if self.mem is not None:                  # persist so the latch survives a restart
+            self.mem.set_state("peak_usd", self.peak_usd)
+            self.mem.set_state("kill_switch", 1.0 if self.kill_switch else 0.0)
         return RiskState(self.peak_usd, current_usd, round(dd, 2), self.kill_switch)
 
     # ------------------------------------------------------------------ #

@@ -33,6 +33,9 @@ CREATE INDEX IF NOT EXISTS ix_trades ON trades(symbol, ts);
 CREATE TABLE IF NOT EXISTS portfolio (
     ts REAL, total_usd REAL, drawdown_pct REAL
 );
+CREATE TABLE IF NOT EXISTS state (
+    key TEXT PRIMARY KEY, value REAL
+);
 """
 
 
@@ -90,6 +93,19 @@ class Memory:
             "SELECT symbol, SUM(CASE WHEN side='buy' THEN size_usd ELSE -size_usd END) "
             "FROM trades GROUP BY symbol").fetchall()
         return {s: float(v) for s, v in rows if v and v > 0}
+
+    # -- durable scalar state (survives restarts) ------------------------- #
+    def get_state(self, key: str, default: float = 0.0) -> float:
+        """Read a persisted scalar (e.g. drawdown peak, kill-switch flag)."""
+        row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
+        return float(row[0]) if row else default
+
+    def set_state(self, key: str, value: float) -> None:
+        """Persist a scalar; upsert keyed by name."""
+        self.conn.execute(
+            "INSERT INTO state(key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, float(value)))
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
