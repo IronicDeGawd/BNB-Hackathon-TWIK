@@ -29,7 +29,7 @@ from brain.conviction import score
 from brain import llm_confirm
 from risk.guardrails import RiskManager
 from brain.memory import Memory
-from execution import twak
+from execution import twak, notify
 
 log = logging.getLogger("conviction.agent")
 
@@ -174,8 +174,13 @@ def main() -> None:
     logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
     mem = Memory()
     rm = RiskManager(mem=mem)                     # restores drawdown peak + kill switch from prior runs
+    live = not twak._dry_run()
+    heartbeat_every = int(os.getenv("HEARTBEAT_CYCLES", "4"))   # 4 cycles @15m = hourly
     log.info("Conviction Agent up | cycle=%dm | watchlist=%d | dry_run=%s",
              settings.CYCLE_MINUTES, len(WATCHLIST), twak._dry_run())
+    notify.send(f"🟢 <b>Conviction Agent up</b>\nmode: {'LIVE' if live else 'paper'} | "
+                f"cycle {settings.CYCLE_MINUTES}m | watchlist {len(WATCHLIST)}")
+    cycles, last_err = 0, ""
     while True:
         try:
             maps = collect_signals(WATCHLIST, mem=mem)
@@ -187,8 +192,21 @@ def main() -> None:
             for a in traded:
                 log.info("  TRADE %s %s $%.2f %s | %s", a.direction, a.symbol,
                          a.size_usd, a.tx_hash, a.reason)
+                emoji = "🟢" if a.direction == "long" else "🔴"
+                notify.send(f"{emoji} <b>{a.direction.upper()} {a.symbol}</b> ${a.size_usd:.2f}\n"
+                            f"{a.reason}\nhttps://bscscan.com/tx/{a.tx_hash}")
+            cycles += 1
+            if heartbeat_every and cycles % heartbeat_every == 0:
+                ks = " | ⛔ kill-switch" if rm.kill_switch else ""
+                notify.send(f"💓 portfolio ${pf:.2f} | considered {len(actions)} | "
+                            f"trades today {rm.trades_today}{ks}")
+            last_err = ""
         except Exception as e:                   # noqa: BLE001 — loop must never die
             log.exception("cycle failed, continuing: %s", e)
+            msg = str(e)[:200]
+            if msg != last_err:                   # dedupe repeated errors to avoid TG spam
+                notify.send(f"⚠️ <b>cycle error</b>\n{msg}")
+                last_err = msg
         time.sleep(settings.CYCLE_MINUTES * 60)
 
 
