@@ -94,6 +94,10 @@ class Memory:
             "FROM trades GROUP BY symbol").fetchall()
         return {s: float(v) for s, v in rows if v and v > 0}
 
+    def trade_count(self) -> int:
+        """Total trades ever executed (persists across restarts — for PnL/activity reporting)."""
+        return int(self.conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0])
+
     def recent_trades(self, symbol: str, limit: int = 5) -> list[dict]:
         """Most recent trades for a token (newest first) — context for the LLM confirm layer."""
         rows = self.conn.execute(

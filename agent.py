@@ -206,17 +206,18 @@ def main() -> None:
             pnl = pf - start
             pct = (pnl / start * 100) if start > 0 else 0.0
             dd = ((rm.peak_usd - pf) / rm.peak_usd * 100) if rm.peak_usd > 0 else 0.0
+            total_trades = mem.trade_count()
             for a in traded:                              # PnL line on every trade
                 sign = "🟢" if pnl >= 0 else "🔴"
                 notify.send(f"{sign} <b>PnL ${pnl:+.2f} ({pct:+.1f}%)</b> | portfolio ${pf:.2f} "
-                            f"| since start ${start:.2f}")
+                            f"| since start ${start:.2f} | trades: {total_trades}")
                 break
             cycles += 1
             if heartbeat_every and cycles % heartbeat_every == 0:
                 ks = " | ⛔ kill-switch" if rm.kill_switch else ""
                 sign = "🟢" if pnl >= 0 else "🔴"
                 notify.send(f"💓 <b>${pf:.2f}</b> | {sign} PnL ${pnl:+.2f} ({pct:+.1f}%) | "
-                            f"dd {dd:.1f}% | trades today {rm.trades_today}{ks}")
+                            f"dd {dd:.1f}% | trades: {total_trades} (today {rm.trades_today}){ks}")
             last_err = ""
         except Exception as e:                   # noqa: BLE001 — loop must never die
             log.exception("cycle failed, continuing: %s", e)
