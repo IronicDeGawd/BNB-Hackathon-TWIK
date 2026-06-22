@@ -64,15 +64,20 @@ def collect_signals(watchlist, wallets=None, address_map=None, prices=None, mem=
     )
 
 
-def portfolio_value() -> float:
-    """Total in-scope holdings in USD. In dry-run, falls back to the paper portfolio.
+def portfolio_value(mem: Memory | None = None) -> float:
+    """Total portfolio in USD = liquid (USDT + BNB) + held alt-token positions.
 
-    In LIVE mode an empty/zero balance read is a hard error so the caller skips the
-    cycle — never silently fall back to a fake portfolio, which would hide real drawdown
-    from the kill switch and mis-size positions.
+    `twak wallet portfolio` only lists native + USDT, NOT the alt-tokens the agent buys,
+    so held positions are added from Memory (at entry cost — a conservative mark; live
+    mark-to-market is a refinement). Without this, holding a bought token reads as a loss
+    and can falsely trip the drawdown kill switch.
+
+    In LIVE mode an empty/zero read is a hard error so the caller skips the cycle.
     """
     bal = twak.get_balance()
-    total = sum(bal.values()) if bal else 0.0
+    liquid = sum(bal.values()) if bal else 0.0
+    held = sum(mem.holdings().values()) if mem is not None else 0.0   # alt-tokens twak omits
+    total = liquid + held
     if twak._dry_run():
         return total if total > 0 else settings.PAPER_PORTFOLIO_USD
     if total <= 0:
@@ -184,7 +189,7 @@ def main() -> None:
     while True:
         try:
             maps = collect_signals(WATCHLIST, mem=mem)
-            pf = portfolio_value()
+            pf = portfolio_value(mem)
             actions = run_cycle(rm, WATCHLIST, *maps, pf, mem)
             traded = [a for a in actions if a.executed]
             log.info("cycle done | portfolio=$%.2f | actions=%d | executed=%d",
