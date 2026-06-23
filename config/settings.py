@@ -18,6 +18,9 @@ SLIPPAGE_BPS = 100               # 1% max slippage
 COOLDOWN_MINUTES = 60            # no re-trade of same token within this window
 DUST_FLOOR_USD = 1.0             # never let portfolio sit at or below this (those hours score 0%)
 
+# --- Stop-loss (risk-off on held positions, independent of the distribution signal) ---
+STOP_LOSS_PCT = 8                 # exit a held token once its market value is down this % from entry cost
+
 # --- Qualification rules ---
 DAILY_TRADE_FLOOR = 1             # must trade at least once/day
 DAILY_FLOOR_HOUR_UTC = 20         # only force the daily-floor trade past this UTC hour (last ~4h)

@@ -143,6 +143,31 @@ def test_llm_veto_blocks_entry(monkeypatch):
     assert any("LLM veto" in a.reason for a in actions)
 
 
+def test_stop_loss_exits_losing_position(monkeypatch):
+    from agent import _check_stops
+    from execution import twak as twk
+    mem = Memory(db_path=":memory:")
+    mem.log_trade("CAKE", "buy", 10.0, "0xa", 70.0)            # cost $10
+    monkeypatch.setattr(twk, "get_token_value", lambda s: 8.0)  # now $8 = -20% > 8% stop
+    actions = []
+    _check_stops(RiskManager(), actions, mem)
+    assert any(a.direction == "exit" and a.executed and "stop-loss" in a.reason for a in actions)
+    assert mem.holding("CAKE") == 0.0                          # position closed
+    mem.close()
+
+
+def test_stop_loss_holds_within_threshold(monkeypatch):
+    from agent import _check_stops
+    from execution import twak as twk
+    mem = Memory(db_path=":memory:")
+    mem.log_trade("CAKE", "buy", 10.0, "0xa", 70.0)
+    monkeypatch.setattr(twk, "get_token_value", lambda s: 9.7)  # -3% < 8% stop -> hold
+    actions = []
+    _check_stops(RiskManager(), actions, mem)
+    assert actions == []
+    mem.close()
+
+
 def test_buy_is_recorded_in_memory():
     rm = RiskManager()
     mem = Memory(db_path=":memory:")

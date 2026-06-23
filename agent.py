@@ -97,6 +97,7 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
     if mem is not None:
         mem.log_portfolio(portfolio_usd, state.drawdown_pct)
     actions: list[Action] = []
+    _check_stops(rm, actions, mem)               # risk-off: cut held losers before anything else
     below_threshold: list = []                   # sub-threshold longs (preferred floor candidates)
     floor_pool: list = []                        # (momentum, Conviction) — day-end qualification fallback
 
@@ -136,17 +137,37 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
     return actions
 
 
+def _check_stops(rm: RiskManager, actions: list, mem: Memory | None) -> None:
+    """Stop-loss: exit any held token whose market value is down > STOP_LOSS_PCT from cost.
+
+    Independent of the distribution signal — cuts a quiet bleed the divergence logic would
+    otherwise hold. Skipped when the position can't be priced (dry-run / read failure).
+    """
+    if mem is None:
+        return
+    for sym, cost in list(mem.holdings().items()):
+        cur = twak.get_token_value(sym)
+        if cur > 0 and cur < cost * (1 - settings.STOP_LOSS_PCT / 100):
+            log.info("stop-loss %s: value $%.2f < cost $%.2f (-%.0f%%)", sym, cur, cost,
+                     settings.STOP_LOSS_PCT)
+            act = _try_exit(rm, sym, 0.0, mem)
+            act = Action(act.symbol, "exit", act.score, act.size_usd, act.tx_hash,
+                         "stop-loss: " + act.reason, act.executed)
+            actions.append(act)
+
+
 def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Action:
     """Close a held position on a distribution signal. Needs memory to size the sell."""
     if mem is None:
         return Action(sym, "exit", sc, 0.0, "", "exit signal; no memory to size holdings", False)
     if not is_eligible(sym):                      # never touch an off-allowlist symbol
         return Action(sym, "exit", sc, 0.0, "", f"{sym} not on allowlist", False)
-    held = mem.holding(sym)
+    held = mem.holding(sym)                       # USD cost basis of the position
     if held <= 0:
         return Action(sym, "exit", sc, 0.0, "", "exit signal but no open position", False)
+    amount = twak.get_token_value(sym) or held    # sell at market value (fallback to cost / dry-run)
     try:
-        tx = twak.execute_trade(sym, "sell", held)
+        tx = twak.execute_trade(sym, "sell", amount)
     except Exception as e:                        # broadcast failed — do NOT mutate state
         log.warning("exit %s failed: %s", sym, e)
         return Action(sym, "exit", sc, held, "", f"sell failed: {e}", False)
