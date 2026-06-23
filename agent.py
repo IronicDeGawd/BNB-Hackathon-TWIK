@@ -162,12 +162,11 @@ def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Actio
         return Action(sym, "exit", sc, 0.0, "", "exit signal; no memory to size holdings", False)
     if not is_eligible(sym):                      # never touch an off-allowlist symbol
         return Action(sym, "exit", sc, 0.0, "", f"{sym} not on allowlist", False)
-    held = mem.holding(sym)                       # USD cost basis of the position
+    held = mem.holding(sym)                       # USD cost basis (for the ledger close)
     if held <= 0:
         return Action(sym, "exit", sc, 0.0, "", "exit signal but no open position", False)
-    amount = twak.get_token_value(sym) or held    # sell at market value (fallback to cost / dry-run)
     try:
-        tx = twak.execute_trade(sym, "sell", amount)
+        tx = twak.execute_trade(sym, "sell", held)   # execute_trade sells the full on-chain balance
     except Exception as e:                        # broadcast failed — do NOT mutate state
         log.warning("exit %s failed: %s", sym, e)
         return Action(sym, "exit", sc, held, "", f"sell failed: {e}", False)

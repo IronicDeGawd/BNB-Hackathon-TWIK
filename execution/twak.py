@@ -163,31 +163,33 @@ def get_balance() -> dict[str, float]:
         return {}
 
 
-def get_token_value(symbol: str) -> float:
-    """Mark-to-market USD value of the wallet's current holding of `symbol`.
-
-    `twak balance --token <contract>` returns live totalUsd. 0 in dry-run or on any error.
-    """
+def _token_balance(symbol: str) -> tuple[str | None, float]:
+    """(token qty as a string, USD value) of the wallet's holding. (None, 0) in dry-run / on error."""
     if _dry_run():
-        return 0.0
+        return None, 0.0
     addr = address_of(symbol)
     wallet = os.getenv("TWAK_WALLET_ADDRESS")
     if not addr or not wallet:
-        return 0.0
+        return None, 0.0
     try:
         d = json.loads(_run(["balance", "--address", wallet, "--token", addr, "--chain", "bsc", "--json"]))
-        return float(d.get("totalUsd") or 0)
+        return d.get("available"), float(d.get("totalUsd") or 0)
     except Exception as e:
-        log.warning("token value read failed for %s: %s", symbol, e)
-        return 0.0
+        log.warning("token balance read failed for %s: %s", symbol, e)
+        return None, 0.0
+
+
+def get_token_value(symbol: str) -> float:
+    """Mark-to-market USD value of the wallet's current holding of `symbol` (0 in dry-run/error)."""
+    return _token_balance(symbol)[1]
 
 
 def execute_trade(symbol: str, side: str, amount_usd: float) -> str:
     """Swap via TWAK on BSC, sign LOCALLY, broadcast. Respects SLIPPAGE_BPS.
 
-    `amount_usd` is a USD figure on BOTH sides (twak `--usd`):
-    side="buy"  -> spend `amount_usd` of QUOTE_TOKEN to acquire `symbol`.
-    side="sell" -> sell `amount_usd` worth of `symbol` back to QUOTE_TOKEN.
+    side="buy"  -> spend `amount_usd` USD of QUOTE_TOKEN to acquire `symbol` (twak --usd).
+    side="sell" -> sell the FULL on-chain balance of `symbol` back to QUOTE_TOKEN, by exact token
+                   quantity (selling by --usd overshoots the balance on price rounding and fails).
     Returns tx hash (simulated under DRY_RUN — never broadcasts in dry-run).
     """
     if side not in ("buy", "sell"):
@@ -201,12 +203,17 @@ def execute_trade(symbol: str, side: str, amount_usd: float) -> str:
         raise RuntimeError(f"refusing to trade off-allowlist symbol: {symbol}")
     _require_live_config()
     slippage_pct = SLIPPAGE_BPS / 100  # bps -> percent (100 bps = 1.0)
-    frm, to = (QUOTE_TOKEN, symbol) if side == "buy" else (symbol, QUOTE_TOKEN)
-    # twak resolves swaps by CONTRACT ADDRESS (bare symbols 404); size in USD on both sides.
-    frm_arg = address_of(frm) or frm
-    to_arg = address_of(to) or to
-    out = _run(["swap", frm_arg, to_arg, "--usd", _fmt(amount_usd),
-                "--chain", "bsc", "--slippage", f"{slippage_pct}", "--json"])
+    quote = address_of(QUOTE_TOKEN) or QUOTE_TOKEN
+    token = address_of(symbol) or symbol
+    if side == "buy":
+        out = _run(["swap", quote, token, "--usd", _fmt(amount_usd),
+                    "--chain", "bsc", "--slippage", f"{slippage_pct}", "--json"])
+    else:                                        # sell exact held quantity (no --usd overshoot)
+        qty, _usd = _token_balance(symbol)
+        if not qty or float(qty) <= 0:
+            raise RuntimeError(f"no {symbol} balance to sell")
+        out = _run(["swap", qty, token, quote,
+                    "--chain", "bsc", "--slippage", f"{slippage_pct}", "--json"])
     try:
         d = json.loads(out)
         tx = d.get("txHash") or d.get("hash") or ""

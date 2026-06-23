@@ -66,6 +66,22 @@ def test_live_accepts_valid_txhash(monkeypatch):
     assert "--usd" in captured["args"]
 
 
+def test_live_sell_uses_token_quantity(monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("TWAK_WALLET_ADDRESS", "0xabc")
+    twak._reset_dry_run()
+    h = "0x" + "b" * 64
+    calls = []
+    def fake_run(args):
+        calls.append(args)
+        return '{"available":"9.5","totalUsd":12.3}' if args[0] == "balance" else '{"txHash":"%s"}' % h
+    monkeypatch.setattr(twak, "_run", fake_run)
+    assert twak.execute_trade("CAKE", "sell", 0) == h
+    swap = next(c for c in calls if c[0] == "swap")
+    assert swap[1] == "9.5"                              # sold by exact token qty
+    assert "--usd" not in swap
+
+
 def test_register_dry_run_simulated():
     assert twak.register().startswith("0xDRYRUN")
 
