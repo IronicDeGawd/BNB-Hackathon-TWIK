@@ -133,7 +133,7 @@ def test_llm_veto_blocks_entry(monkeypatch):
     monkeypatch.setattr("brain.conviction.make_rationale", lambda *a: "stub")   # keep offline
     monkeypatch.setattr(llm_confirm, "_query_gemini",
                         lambda p: {"allow": False, "reason": "re-buying just-sold token"})
-    rm = RiskManager()
+    rm = RiskManager(now_fn=lambda: 1_699_920_000.0)        # hour 0 UTC — daily floor inactive, isolate the veto
     maps = (
         {"CAKE": _on(STRONG)}, {"CAKE": TwitterSignal("CAKE", 50, 0.4)},
         {}, {"CAKE": CmcSignal("CAKE", 1e6, 0.0, True, MOM)},

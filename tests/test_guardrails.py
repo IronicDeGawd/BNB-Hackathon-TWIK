@@ -135,12 +135,12 @@ def test_daily_floor_and_rollover():
     assert rm.needs_daily_floor_trade() is True                # counter reset, still late hour
 
 
-def test_daily_floor_held_until_day_closes():
-    # 08:00 UTC: zero trades, but it is early — do NOT force a sub-threshold trade yet.
-    early = Clock(t=1_699_948_800.0)                           # 2023-11-14T08:00:00 UTC
-    rm = _rm(early)
+def test_daily_floor_active_from_floor_hour():
+    # before the floor hour (00:30 UTC) -> not yet; from the floor hour -> active (lock scoring early)
+    clk = Clock(t=1_699_921_800.0)                             # 2023-11-14T00:30:00 UTC (hour 0)
+    rm = _rm(clk)
     assert rm.needs_daily_floor_trade() is False
-    early.advance(settings.DAILY_FLOOR_HOUR_UTC * 3600 - 8 * 3600)  # advance to the floor hour
+    clk.advance(3600)                                          # -> 01:30 UTC, hour 1 >= floor hour
     assert rm.needs_daily_floor_trade() is True
 
 

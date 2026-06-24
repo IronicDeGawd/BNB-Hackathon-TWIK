@@ -106,8 +106,8 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
                      onchain_map.get(sym), cmc_map.get(sym))
         conv = score(div)
 
-        # any positive-momentum token is a last-resort floor candidate (keeps >=1 trade/day)
-        if div.cmc_momentum_pct > 0 and conv.direction != "exit":
+        # positive-momentum, structurally-OK token = last-resort floor candidate (keeps >=1 trade/day)
+        if div.cmc_momentum_pct > 0 and div.structural_ok and conv.direction != "exit":
             floor_pool.append((div.cmc_momentum_pct,
                                Conviction(sym, "long", max(conv.score, 1.0),
                                           conv.confidence, conv.rationale_text)))
