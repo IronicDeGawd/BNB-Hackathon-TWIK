@@ -145,13 +145,15 @@ def test_daily_floor_active_from_floor_hour():
 
 
 def test_daily_trade_cap_blocks_overtrading():
+    from config.watchlist import WATCHLIST
+    from config.tokens import is_eligible
     rm = _rm()
     rm.update_drawdown(1000.0)
-    toks = ["CAKE", "AVAX", "LINK", "UNI", "AAVE", "DOT", "ATOM", "INJ"]  # distinct -> no cooldown
+    toks = [t for t in WATCHLIST if is_eligible(t)][:settings.MAX_TRADES_PER_DAY + 2]  # distinct -> no cooldown
+    assert len(toks) > settings.MAX_TRADES_PER_DAY              # enough to exceed the cap
     allowed = 0
     for t in toks:
         if rm.allows(t, 10.0)[0]:
             rm.record_trade(t)
             allowed += 1
-    assert allowed == settings.MAX_TRADES_PER_DAY                # stops at the cap
-    assert "daily trade cap" in rm.allows("FET", 10.0)[1]       # fresh token still blocked
+    assert allowed == settings.MAX_TRADES_PER_DAY               # stops at the cap

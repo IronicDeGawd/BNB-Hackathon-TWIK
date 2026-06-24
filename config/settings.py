@@ -26,7 +26,7 @@ DAILY_TRADE_FLOOR = 1             # must trade at least once/day
 DAILY_FLOOR_HOUR_UTC = 1          # force the daily qualifying trade early in the UTC day (lock scoring)
 DAILY_FLOOR_MIN_SCORE = 40        # never force a daily-floor trade below this conviction (skip junk)
 WEEKLY_TRADE_FLOOR = 7           # must trade at least 7x over the week
-MAX_TRADES_PER_DAY = 6           # hard cap on new entries/day (anti-churn; fee drag bites at small size)
+MAX_TRADES_PER_DAY = 20          # hard cap on new entries/day (raised for an active competition week)
 DISQUALIFY_DRAWDOWN_PCT = 30      # hard gate from hackathon rules (do not breach)
 
 # --- Budgets ---
