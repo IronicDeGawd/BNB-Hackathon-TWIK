@@ -178,6 +178,11 @@ def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Actio
 def _try_enter(rm: RiskManager, sym: str, sc: float, rationale: str,
                portfolio_usd: float, mem: Memory | None) -> Action:
     size = rm.position_size(sc, portfolio_usd)
+    if not twak._dry_run():                       # cap to spendable cash — can't buy with locked-up tokens
+        cash = twak.get_balance().get(twak.QUOTE_TOKEN, 0.0)
+        size = min(size, max(0.0, cash - 0.50))   # leave a small buffer
+        if size < 1.0:
+            return Action(sym, "long", sc, 0.0, "", f"insufficient {twak.QUOTE_TOKEN} (${cash:.2f})", False)
     pos = twak.get_token_value(sym)               # current exposure -> cumulative position cap
     ok, reason = rm.allows(sym, size, portfolio_usd, position_usd=pos)
     if not ok:
