@@ -97,14 +97,19 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
     if mem is not None:
         mem.log_portfolio(portfolio_usd, state.drawdown_pct)
     actions: list[Action] = []
-    _check_stops(rm, actions, mem)               # risk-off: cut held losers before anything else
+    _check_exits(rm, actions, mem)               # stop-loss + take-profit before anything else
     below_threshold: list = []                   # sub-threshold longs (preferred floor candidates)
     floor_pool: list = []                        # (momentum, Conviction) — day-end qualification fallback
+    held = set(mem.holdings()) if mem is not None else set()
+    held_scores: dict = {}                       # held token -> its current conviction (rotation laggard)
+    blocked_longs: list = []                     # strong longs we couldn't fund (rotation targets)
 
     for sym in watchlist:
         div = detect(sym, twitter_map.get(sym), reddit_map.get(sym),
                      onchain_map.get(sym), cmc_map.get(sym))
         conv = score(div)
+        if sym in held:
+            held_scores[sym] = conv.score
 
         # positive-momentum, structurally-OK token = last-resort floor candidate (keeps >=1 trade/day)
         if div.cmc_momentum_pct > 0 and div.structural_ok and conv.direction != "exit":
@@ -128,32 +133,43 @@ def run_cycle(rm: RiskManager, watchlist, onchain_map, twitter_map, reddit_map,
             allow, why = llm_confirm.confirm(div, conv, mem, state.drawdown_pct, rm.trades_today)
             if not allow:
                 actions.append(Action(sym, "long", conv.score, 0.0, "", f"LLM veto: {why}", False))
-            else:
-                actions.append(_try_enter(rm, sym, conv.score, conv.rationale_text, portfolio_usd, mem))
+                continue
+            act = _try_enter(rm, sym, conv.score, conv.rationale_text, portfolio_usd, mem)
+            actions.append(act)
+            if not act.executed and "insufficient" in act.reason and sym not in held:
+                blocked_longs.append((conv.score, sym))   # strong setup we couldn't fund -> rotate to it
         else:
             below_threshold.append(conv)
+
+    _maybe_rotate(rm, actions, held_scores, blocked_longs, mem)
 
     _maybe_daily_floor(rm, state, actions, below_threshold, floor_pool, portfolio_usd, mem)
     return actions
 
 
-def _check_stops(rm: RiskManager, actions: list, mem: Memory | None) -> None:
-    """Stop-loss: exit any held token whose market value is down > STOP_LOSS_PCT from cost.
+def _check_exits(rm: RiskManager, actions: list, mem: Memory | None) -> None:
+    """Stop-loss + take-profit on held positions, independent of the distribution signal.
 
-    Independent of the distribution signal — cuts a quiet bleed the divergence logic would
-    otherwise hold. Skipped when the position can't be priced (dry-run / read failure).
+    Exit when market value is down > STOP_LOSS_PCT (cut the bleed) or up > TAKE_PROFIT_PCT
+    (bank the gain + free cash). Skipped when a position can't be priced (dry-run / read failure).
     """
     if mem is None:
         return
     for sym, cost in list(mem.holdings().items()):
         cur = twak.get_token_value(sym)
-        if cur > 0 and cur < cost * (1 - settings.STOP_LOSS_PCT / 100):
-            log.info("stop-loss %s: value $%.2f < cost $%.2f (-%.0f%%)", sym, cur, cost,
-                     settings.STOP_LOSS_PCT)
-            act = _try_exit(rm, sym, 0.0, mem)
-            act = Action(act.symbol, "exit", act.score, act.size_usd, act.tx_hash,
-                         "stop-loss: " + act.reason, act.executed)
-            actions.append(act)
+        if cur <= 0 or cost <= 0:
+            continue
+        pnl = (cur - cost) / cost * 100
+        if pnl <= -settings.STOP_LOSS_PCT:
+            tag = f"stop-loss {pnl:+.1f}%"
+        elif pnl >= settings.TAKE_PROFIT_PCT:
+            tag = f"take-profit {pnl:+.1f}%"
+        else:
+            continue
+        log.info("%s %s: value $%.2f vs cost $%.2f", tag, sym, cur, cost)
+        act = _try_exit(rm, sym, 0.0, mem)
+        actions.append(Action(act.symbol, "exit", act.score, act.size_usd, act.tx_hash,
+                              tag + ": " + act.reason, act.executed))
 
 
 def _try_exit(rm: RiskManager, sym: str, sc: float, mem: Memory | None) -> Action:
@@ -196,6 +212,21 @@ def _try_enter(rm: RiskManager, sym: str, sc: float, rationale: str,
     if mem is not None:
         mem.log_trade(sym, "buy", size, tx, sc)
     return Action(sym, "long", sc, size, tx, rationale, True)
+
+
+def _maybe_rotate(rm, actions, held_scores, blocked_longs, mem) -> None:
+    """Free cash for a strong setup we couldn't fund by selling the weakest holding —
+    only when the conviction gap is large (avoids churn). Next cycle buys the stronger setup."""
+    if mem is None or not blocked_longs or not held_scores:
+        return
+    best_score, best_sym = max(blocked_longs)
+    weak_sym, weak_score = min(held_scores.items(), key=lambda kv: kv[1])
+    if best_score - weak_score < settings.ROTATION_SCORE_GAP:
+        return
+    log.info("rotate: sell laggard %s (%.0f) to fund %s (%.0f)", weak_sym, weak_score, best_sym, best_score)
+    act = _try_exit(rm, weak_sym, 0.0, mem)
+    actions.append(Action(act.symbol, "exit", act.score, act.size_usd, act.tx_hash,
+                          f"rotate->{best_sym}: " + act.reason, act.executed))
 
 
 def _maybe_daily_floor(rm, state, actions, below_threshold, floor_pool, portfolio_usd, mem) -> None:

@@ -144,26 +144,39 @@ def test_llm_veto_blocks_entry(monkeypatch):
 
 
 def test_stop_loss_exits_losing_position(monkeypatch):
-    from agent import _check_stops
+    from agent import _check_exits
     from execution import twak as twk
     mem = Memory(db_path=":memory:")
     mem.log_trade("CAKE", "buy", 10.0, "0xa", 70.0)            # cost $10
     monkeypatch.setattr(twk, "get_token_value", lambda s: 8.0)  # now $8 = -20% > 8% stop
     actions = []
-    _check_stops(RiskManager(), actions, mem)
+    _check_exits(RiskManager(), actions, mem)
     assert any(a.direction == "exit" and a.executed and "stop-loss" in a.reason for a in actions)
     assert mem.holding("CAKE") == 0.0                          # position closed
     mem.close()
 
 
-def test_stop_loss_holds_within_threshold(monkeypatch):
-    from agent import _check_stops
+def test_take_profit_banks_the_gain(monkeypatch):
+    from agent import _check_exits
+    from execution import twak as twk
+    mem = Memory(db_path=":memory:")
+    mem.log_trade("CAKE", "buy", 10.0, "0xa", 70.0)            # cost $10
+    monkeypatch.setattr(twk, "get_token_value", lambda s: 11.5)  # +15% > 10% take-profit
+    actions = []
+    _check_exits(RiskManager(), actions, mem)
+    assert any(a.direction == "exit" and a.executed and "take-profit" in a.reason for a in actions)
+    assert mem.holding("CAKE") == 0.0
+    mem.close()
+
+
+def test_exits_hold_within_band(monkeypatch):
+    from agent import _check_exits
     from execution import twak as twk
     mem = Memory(db_path=":memory:")
     mem.log_trade("CAKE", "buy", 10.0, "0xa", 70.0)
-    monkeypatch.setattr(twk, "get_token_value", lambda s: 9.7)  # -3% < 8% stop -> hold
+    monkeypatch.setattr(twk, "get_token_value", lambda s: 9.7)  # -3%: between stop and take-profit -> hold
     actions = []
-    _check_stops(RiskManager(), actions, mem)
+    _check_exits(RiskManager(), actions, mem)
     assert actions == []
     mem.close()
 
