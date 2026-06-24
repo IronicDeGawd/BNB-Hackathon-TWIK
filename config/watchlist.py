@@ -17,6 +17,7 @@ WATCHLIST: list[str] = [
     # extension: liquid + social-active, all on ELIGIBLE (confirm BSC pool depth before live)
     "XRP", "DOGE", "SHIB", "TRX", "ADA",
     "TON", "PENDLE", "AXS", "APE", "LDO",
+    "MYX",
 ]
 
 
