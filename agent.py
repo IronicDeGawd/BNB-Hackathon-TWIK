@@ -65,26 +65,23 @@ def collect_signals(watchlist, wallets=None, address_map=None, prices=None, mem=
 
 
 def portfolio_value(mem: Memory | None = None) -> float:
-    """Total portfolio in USD = liquid (USDT + BNB) + held alt-token positions.
+    """Scored portfolio value in USD = spendable USDT + alt-token positions (mark-to-market).
 
-    `twak wallet portfolio` only lists native + USDT, NOT the alt-tokens the agent buys.
-    Live: each held position is marked to market via twak.get_token_value (real price);
-    dry-run: cost basis from Memory. Without this, holding a bought token reads as a loss
-    and falsely trips the drawdown kill switch.
+    Excludes BNB (gas reserve — the leaderboard doesn't count it). Counts each held alt ONCE
+    via twak.get_token_value: twak's portfolio listing is inconsistent (sometimes includes
+    alt tokens), so summing it AND the held tokens double-counts. This matches the official
+    leaderboard value, so drawdown / kill switch / PnL track reality.
 
     In LIVE mode an empty/zero read is a hard error so the caller skips the cycle.
     """
     bal = twak.get_balance()
-    liquid = sum(bal.values()) if bal else 0.0
-    held = 0.0
-    if mem is not None:
-        if twak._dry_run():
-            held = sum(mem.holdings().values())          # paper: cost basis
-        else:
-            held = sum(twak.get_token_value(s) for s in mem.holdings())  # live: mark-to-market
-    total = liquid + held
-    if twak._dry_run():
+    if twak._dry_run():                              # paper: liquid + cost-basis holdings
+        held = sum(mem.holdings().values()) if mem is not None else 0.0
+        total = (sum(bal.values()) if bal else 0.0) + held
         return total if total > 0 else settings.PAPER_PORTFOLIO_USD
+    liquid = bal.get(twak.QUOTE_TOKEN, 0.0)          # spendable stablecoin only (exclude BNB gas)
+    held = sum(twak.get_token_value(s) for s in mem.holdings()) if mem is not None else 0.0
+    total = liquid + held
     if total <= 0:
         raise RuntimeError("live balance read empty/zero — skipping cycle (no paper fallback)")
     return total
